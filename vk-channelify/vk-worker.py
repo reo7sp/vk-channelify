@@ -13,19 +13,19 @@ def worker(iteration_delay, channels_groups, telegram_token, vk_service_code):
         time.sleep(iteration_delay)
 
 
-def worker_iteration(channels_groups, telegram_token, vk_service_code):
+def worker_iteration(channel_groups, telegram_token, vk_service_code):
     bot = telegram.Bot(telegram_token)
 
-    for channel, groups in channels_groups.items():
+    for channel, groups in channel_groups.items():
         for group in groups:
             posts = fetch_group_posts(group, vk_service_code)
 
             for post in posts:
                 post_url = 'https://vk.com/wall{}_{}'.format(group, post['id'])
                 text = '{}\n\n{}'.format(post_url, post['text'])
-                has_photo = 'attachments' in post and 'photo_1280' in post['attachments'][0]
-
                 bot.send_message(channel, text)
+
+                has_photo = 'attachments' in post and 'photo_1280' in post['attachments'][0]
                 if has_photo:
                     photo_url = post['attachments'][0]['photo_1280']
                     bot.send_photo(channel, photo_url)

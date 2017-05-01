@@ -1,4 +1,5 @@
 from functools import partial
+from typing import NewType
 
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import CommandHandler, Updater, ConversationHandler, Filters, MessageHandler, RegexHandler
@@ -6,8 +7,7 @@ from telegram.ext import CommandHandler, Updater, ConversationHandler, Filters, 
 from . import models
 
 
-def worker(telegram_token: str, db_url: str):
-    db = models.connect(db_url)
+def worker(telegram_token, db):
     user_group_links = dict()
 
     updater = Updater(telegram_token)

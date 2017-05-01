@@ -1,3 +1,4 @@
+SQLAlchemy
 alembic
 requests
 python-telegram-bot

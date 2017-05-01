@@ -7,7 +7,7 @@ Base = declarative_base()
 from .channel import Channel
 
 
-def connect(url: str):
+def connect_db(url):
     engine = create_engine(url)
     Session = sessionmaker(bind=engine)
     db = Session()

@@ -73,6 +73,7 @@ def new_in_state_tg_channel_link(bot, update, db, user_group_links):
     bot.send_message(channel_id, 'This channel is powered by @vk_channelify_bot')
 
     update.message.reply_text('Done!')
+    update.message.reply_text('Bot will check your VK group every 15 minutes')
     update.message.reply_text('Use /new to setup a new channel')
     return ConversationHandler.END
 

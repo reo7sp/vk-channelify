@@ -36,13 +36,6 @@ def worker_iteration(vk_service_code, telegram_token, db):
                     post_url = 'https://vk.com/wall{}_{}'.format(post['owner_id'], post['id'])
                     text = '{}\n\n{}'.format(post_url, post['text'])
                     bot.send_message(channel.channel_id, text)
-                    if 'attachments' in post:
-                        for attachment in post['attachments']:
-                            if 'photo' in attachment:
-                                photo_url = get_photo_url(attachment['photo'])
-                                if photo_url is not None:
-                                    bot.send_photo(channel.channel_id, photo_url)
-                                    break
 
             channel.last_vk_post_id = posts[0]['id']
             db.commit()
@@ -51,15 +44,9 @@ def worker_iteration(vk_service_code, telegram_token, db):
             db.delete(channel)
             db.commit()
 
+
 def fetch_group_posts(group, vk_service_code):
     time.sleep(0.35)
     r = requests.get(
         'https://api.vk.com/method/wall.get?domain={}&count=10&secure={}&v=5.63'.format(group, vk_service_code))
     return r.json()['response']['items']
-
-
-def get_photo_url(photo):
-    for k in ['photo_2560', 'photo_1280', 'photo_807', 'photo_604', 'photo_130', 'photo_75']:
-        if k in photo:
-            return photo[k]
-    return None

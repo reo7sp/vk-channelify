@@ -1,0 +1,8 @@
+{
+  "name": "vk-channelify",
+  "scripts": {
+    "dokku": {
+      "predeploy": "PYTHONPATH=. alembic upgrade head"
+    }
+  }
+}

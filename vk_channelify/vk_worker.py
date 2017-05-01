@@ -37,7 +37,7 @@ def worker_iteration(vk_service_code, telegram_token, db):
                     text = '{}\n\n{}'.format(post_url, post['text'])
                     bot.send_message(channel.channel_id, text)
 
-            channel.last_vk_post_id = posts[0]['id']
+            channel.last_vk_post_id = max(post['id'] for post in posts)
             db.commit()
         except telegram.error.Unauthorized:
             db.add(DisabledChannel(vk_group_id=channel.vk_group_id))

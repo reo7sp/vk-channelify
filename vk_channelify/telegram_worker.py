@@ -61,14 +61,15 @@ def new_in_state_tg_channel_access(bot, update):
 
 
 def new_in_state_tg_channel_link(bot, update, db, user_group_links):
+    user_id = update.message.from_user.id
     channel_id = update.message.forward_from_chat.id
-    vk_group_id = user_group_links[update.message.from_user.id]
+    vk_group_id = user_group_links[user_id]
 
-    channel = models.Channel(channel_id=channel_id, vk_group_id=vk_group_id)
+    channel = models.Channel(channel_id=channel_id, vk_group_id=vk_group_id, owner_id=user_id)
     db.add(channel)
     db.commit()
 
-    del user_group_links[update.message.from_user.id]
+    del user_group_links[user_id]
 
     bot.send_message(channel_id, 'This channel is powered by @vk_channelify_bot')
 

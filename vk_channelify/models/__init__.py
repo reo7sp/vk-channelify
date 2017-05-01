@@ -5,6 +5,7 @@ from sqlalchemy.orm import sessionmaker
 Base = declarative_base()
 
 from .channel import Channel
+from .disabled_channel import DisabledChannel
 
 
 def connect_db(url):

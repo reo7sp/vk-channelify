@@ -1,5 +1,4 @@
 from functools import partial
-from typing import NewType
 
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import CommandHandler, Updater, ConversationHandler, Filters, MessageHandler, RegexHandler
@@ -26,14 +25,14 @@ def worker(telegram_token, db):
     ))
 
     updater.start_polling()
-    updater.idle()
+    return updater
 
 
 VK_GROUP_LINK, TG_CHANNEL_ACCESS, TG_CHANNEL_LINK = range(3)
 
 
 def start(bot, update):
-    update.message.reply_text('Use /new to setup a new channel'
+    update.message.reply_text('Use /new to setup a new channel '
                               'which will be populated by posts in your specified VK group')
 
 
@@ -43,12 +42,14 @@ def new(bot, update):
 
 
 def new_in_state_vk_group_link(bot, update, user_group_links):
-    user_group_links[update.message.from_user.id] = update.message.text
+    vk_url = update.message.text
+    vk_domain = vk_url.split('/')[-1]
+    user_group_links[update.message.from_user.id] = vk_domain
 
     update.message.reply_text('Great! So now:')
     update.message.reply_text('1. Create a new channel. You can reuse existing channel')
     reply_keyboard = [['I\'ve have done it']]
-    update.message.reply_text('2. Add this bot to administrators of the channel',
+    update.message.reply_text('2. Add this bot (@vk_channelify_bot) to administrators of the channel',
                               reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True))
     return TG_CHANNEL_ACCESS
 
@@ -67,13 +68,19 @@ def new_in_state_tg_channel_link(bot, update, db, user_group_links):
     db.add(channel)
     db.commit()
 
+    del user_group_links[update.message.from_user.id]
+
+    bot.send_message(channel_id, 'This channel is powered by @vk_channelify_bot')
+
     update.message.reply_text('Done!')
+    update.message.reply_text('Use /new to setup a new channel')
     return ConversationHandler.END
 
 
 def cancel(bot, update, user_group_links):
-    if update.message.id in user_group_links:
-        del user_group_links[update.message.id]
+    if update.message.from_user.id in user_group_links:
+        del user_group_links[update.message.from_user.id]
 
     update.message.reply_text('Fine')
+    update.message.reply_text('Use /new to setup a new channel')
     return ConversationHandler.END

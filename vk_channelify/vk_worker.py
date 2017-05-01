@@ -2,9 +2,10 @@ import traceback
 import telegram
 import requests
 import time
+from typing import Dict
 
 
-def worker(iteration_delay, channels_groups, telegram_token, vk_service_code):
+def worker(iteration_delay: float, channels_groups: Dict[str, str], telegram_token: str, vk_service_code: str):
     while True:
         try:
             worker_iteration(channels_groups, telegram_token, vk_service_code)
@@ -32,5 +33,6 @@ def worker_iteration(channel_groups, telegram_token, vk_service_code):
 
 
 def fetch_group_posts(group, vk_service_code):
-    r = requests.get('https://api.vk.com/method/wall.get?domain={}&count=10&secure={}&v=5.63'.format(group, vk_service_code))
+    r = requests.get(
+        'https://api.vk.com/method/wall.get?domain={}&count=10&secure={}&v=5.63'.format(group, vk_service_code))
     return r.json()['response']['items']

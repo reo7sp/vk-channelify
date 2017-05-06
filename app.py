@@ -1,6 +1,6 @@
 import os
 
-from vk_channelify import models, telegram_worker, vk_worker
+from vk_channelify import models, run_manage_worker, run_repost_worker
 
 if __name__ == '__main__':
     telegram_token = os.getenv('TELEGRAM_TOKEN')
@@ -9,7 +9,7 @@ if __name__ == '__main__':
     vk_thread_delay = 15 * 60  # 15 minutes
 
     db = models.connect_db(db_url)
-    telegram_updater = telegram_worker(telegram_token, db)
-    vk_thread = vk_worker(vk_thread_delay, vk_token, telegram_token, db)
+    telegram_updater = run_manage_worker(telegram_token, db)
+    repost_thread = run_repost_worker(vk_thread_delay, vk_token, telegram_token, db)
 
     telegram_updater.idle()

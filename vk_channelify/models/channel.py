@@ -10,3 +10,5 @@ class Channel(Base):
     vk_group_id = Column(String, nullable=False)
     last_vk_post_id = Column(Integer, nullable=False, server_default='0')
     owner_id = Column(String)
+    owner_username = Column(String)
+    hashtag_filter = Column(String)

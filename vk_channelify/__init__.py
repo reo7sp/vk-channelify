@@ -1,3 +1,3 @@
 from . import models
-from .telegram_worker import worker as telegram_worker
-from .vk_worker import worker as vk_worker
+from .manage_worker import run_worker as run_manage_worker
+from .repost_worker import run_worker as run_repost_worker

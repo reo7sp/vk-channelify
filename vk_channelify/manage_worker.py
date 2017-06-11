@@ -1,12 +1,15 @@
 import traceback
 from functools import partial
 
+import logging
 import telegram
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import CommandHandler, Updater, ConversationHandler, Filters, MessageHandler, RegexHandler
 
 from vk_channelify.models import Channel
 from . import models
+
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 
 def run_worker(telegram_token, db):
@@ -56,7 +59,7 @@ def del_state(update, users_state):
 
 
 def on_error(bot, update, error):
-    print('ERROR IN manage_worker.py: Update \'{}\' made an error \'{}\''.format(update, error))
+    logging.warning('Update "{}" caused error "{}"'.format(update, error))
     if update is not None:
         update.message.reply_text('Sorry, got an internal server error!')
         update.message.reply_text(str(error))

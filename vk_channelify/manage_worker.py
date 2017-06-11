@@ -58,9 +58,10 @@ def del_state(update, users_state):
 def on_error(bot, update, error):
     print('ERROR IN manage_worker.py: update: {}'.format(update))
     print('ERROR IN manage_worker.py: error: {}'.format(error))
-    update.message.reply_text('Sorry, got an internal server error!')
-    update.message.reply_text(str(error))
-    update.message.reply_text('Send the message above to @reo7sp. Don\'t forget to say the time then the error occured')
+    if update is not None:
+        update.message.reply_text('Sorry, got an internal server error!')
+        update.message.reply_text(str(error))
+        update.message.reply_text('Send the message above to @reo7sp. Don\'t forget to say the time then the error occurred.')
 
 
 def start(bot, update):

@@ -56,18 +56,18 @@ def del_state(update, users_state):
 
 
 def on_error(bot, update, error):
-    print('ERROR IN manage_worker.py: update: {}'.format(update))
-    print('ERROR IN manage_worker.py: error: {}'.format(error))
+    print('ERROR IN manage_worker.py: Update \'{}\' made an error \'{}\''.format(update, error))
     if update is not None:
         update.message.reply_text('Sorry, got an internal server error!')
         update.message.reply_text(str(error))
-        update.message.reply_text('Send the message above to @reo7sp. Don\'t forget to say the time then the error occurred.')
+        update.message.reply_text('Send the message above to @reo7sp. '
+                                  'Don\'t forget to say the time then the error occurred')
 
 
 def start(bot, update):
     update.message.reply_text('Use /new to setup a new channel '
                               'which will be populated by posts in your specified VK group')
-    update.message.reply_text('Bot author: @reo7sp')
+    update.message.reply_text('Send feedback to @reo7sp')
 
 
 def new(bot, update):

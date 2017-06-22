@@ -40,10 +40,7 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
             channel.last_vk_post_id = max(post['id'] for post in posts)
             db.commit()
         except (telegram.error.Unauthorized, KeyError):
-            db.add(DisabledChannel(vk_group_id=channel.vk_group_id, last_vk_post_id=channel.last_vk_post_id,
-                                   owner_id=channel.owner_id, owner_username=channel.owner_username))
-            db.delete(channel)
-            db.commit()
+            pass
 
 
 def fetch_group_posts(group, vk_service_code):

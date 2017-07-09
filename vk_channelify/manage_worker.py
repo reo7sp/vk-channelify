@@ -66,7 +66,7 @@ def run_worker(telegram_token, db, use_webhook, webhook_domain='', webhook_port=
 
     if use_webhook:
         logger.info('Starting webhook at {}:{}'.format(webhook_domain, webhook_port))
-        updater.start_webhook(webhook_domain, webhook_port, telegram_token)
+        updater.start_webhook('0.0.0.0', webhook_port, telegram_token, webhook_url='https://{}/{}'.format(webhook_domain, telegram_token))
     else:
         logger.info('Starting long poll')
         updater.start_polling()

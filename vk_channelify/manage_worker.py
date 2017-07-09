@@ -125,9 +125,15 @@ def new_in_state_asked_channel_message(bot, update, db, users_state):
     channel_id = update.message.forward_from_chat.id
     vk_group_id = users_state[user_id]['vk_domain']
 
-    channel = models.Channel(channel_id=channel_id, vk_group_id=vk_group_id, owner_id=user_id, owner_username=username)
+    channel = Channel(channel_id=channel_id, vk_group_id=vk_group_id, owner_id=user_id, owner_username=username)
     db.add(channel)
     db.commit()
+
+    try:
+        db.query(DisabledChannel).filter(DisabledChannel.channel_id == channel_id).delete()
+    except:
+        logger.warning('Cannot delete disabled channel of {}'.format(channel_id))
+        traceback.print_exc()
 
     del users_state[user_id]
 

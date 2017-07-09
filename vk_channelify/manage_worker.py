@@ -26,7 +26,7 @@ def run_worker(telegram_token, db, use_webhook, webhook_domain='', webhook_port=
             ASKED_VK_GROUP_LINK_IN_NEW:
                 [RegexHandler('^https://vk.com/', partial(new_in_state_asked_vk_group_link, users_state=users_state))],
             ASKED_CHANNEL_ACCESS_IN_NEW:
-                [RegexHandler('^I\'ve have done it$', new_in_state_asked_channel_access)],
+                [RegexHandler('^Я сделал$', new_in_state_asked_channel_access)],
             ASKED_CHANNEL_MESSAGE_IN_NEW:
                 [MessageHandler(Filters.forwarded,
                                 partial(new_in_state_asked_channel_message, db=db, users_state=users_state))]
@@ -71,20 +71,18 @@ def on_error(bot, update, error):
     logger.error('Update "{}" caused error "{}"'.format(update, error))
     traceback.print_exc()
     if update is not None:
-        update.message.reply_text('Sorry, got an internal server error!')
+        update.message.reply_text('Внутренняя ошибка')
         update.message.reply_text(str(error))
-        update.message.reply_text('Send the message above to @reo7sp. '
-                                  'Don\'t forget to say the time then the error occurred')
+        update.message.reply_text('Сообщите @reo7sp')
 
 
 def start(bot, update):
-    update.message.reply_text('Use /new to setup a new channel '
-                              'which will be populated by posts in your specified VK group')
-    update.message.reply_text('Send feedback to @reo7sp')
+    update.message.reply_text('Команда /new настроит новый канал. В канал будут пересылаться посты из группы ВК')
+    update.message.reply_text('По вопросам пишите @reo7sp')
 
 
 def new(bot, update):
-    update.message.reply_text('Enter link to the VK group', reply_markup=ReplyKeyboardRemove())
+    update.message.reply_text('Отправьте ссылку на группу ВК', reply_markup=ReplyKeyboardRemove())
     return ASKED_VK_GROUP_LINK_IN_NEW
 
 
@@ -93,16 +91,16 @@ def new_in_state_asked_vk_group_link(bot, update, users_state):
     vk_domain = vk_url.split('/')[-1]
     users_state[update.message.from_user.id] = vk_domain
 
-    update.message.reply_text('Great! So now:')
-    update.message.reply_text('1. Create a new channel. You can reuse existing channel')
-    keyboard = [['I\'ve have done it']]
-    update.message.reply_text('2. Add this bot (@vk_channelify_bot) to administrators of the channel',
+    update.message.reply_text('Отлично! Теперь:')
+    update.message.reply_text('1. Создайте новый канал. Можно использовать существующий')
+    keyboard = [['Я сделал']]
+    update.message.reply_text('2. Добавьте этого бота (@vk_channelify_bot) в администраторы канала',
                               reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return ASKED_CHANNEL_ACCESS_IN_NEW
 
 
 def new_in_state_asked_channel_access(bot, update):
-    update.message.reply_text('Okay. Forward any message from your channel so I will remember it',
+    update.message.reply_text('Хорошо. Перешлите любое сообщение из канала',
                               reply_markup=ReplyKeyboardRemove())
     return ASKED_CHANNEL_MESSAGE_IN_NEW
 
@@ -119,19 +117,19 @@ def new_in_state_asked_channel_message(bot, update, db, users_state):
 
     del users_state[user_id]
 
-    bot.send_message(channel_id, 'This channel is powered by @vk_channelify_bot')
+    bot.send_message(channel_id, 'Канал работает с помощью @vk_channelify_bot')
 
-    update.message.reply_text('Done!')
-    update.message.reply_text('Bot will check your VK group every 15 minutes')
-    update.message.reply_text('Apply hashtag filtering via /filter_by_hashtag command')
-    update.message.reply_text('Use /new to setup a new channel')
+    update.message.reply_text('Готово!')
+    update.message.reply_text('Бот будет проверять группу каждые 15 минут')
+    update.message.reply_text('Настроить фильтр по хештегам можно командой /filter_by_hashtag')
+    update.message.reply_text('Команда /new настроит новый канал')
     del_state(update, users_state)
     return ConversationHandler.END
 
 
 def cancel_new(bot, update, users_state):
-    update.message.reply_text('Fine', reply_markup=ReplyKeyboardRemove())
-    update.message.reply_text('Use /new to setup a new channel')
+    update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
+    update.message.reply_text('Команда /new настроит новый канал')
     del_state(update, users_state)
     return ConversationHandler.END
 
@@ -153,7 +151,7 @@ def filter_by_hashtag(bot, update, db):
     if len(keyboard_row) != 0:
         keyboard.append(keyboard_row)
 
-    update.message.reply_text('Choose channel', reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+    update.message.reply_text('Выберите канал', reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
 
     return ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG
 
@@ -165,9 +163,9 @@ def filter_by_hashtag_in_state_asked_channel_id(bot, update, db, users_state):
     users_state[user_id] = channel
 
     if channel.hashtag_filter is not None:
-        update.message.reply_text('Current hashtag filter:')
+        update.message.reply_text('Текущий фильтр по хештегам:')
         update.message.reply_text(channel.hashtag_filter)
-    update.message.reply_text('Write new hashtags (separate with comma):')
+    update.message.reply_text('Напишите новые хештеги (разделяйте запятой):')
 
     return ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG
 
@@ -179,14 +177,14 @@ def filter_by_hashtag_in_state_asked_hashtags(bot, update, db, users_state):
     channel.hashtag_filter = ','.join(h.strip() for h in update.message.text.split(','))
     db.commit()
 
-    update.message.reply_text('Saved!')
+    update.message.reply_text('Сохранено!')
     del_state(update, users_state)
     return ConversationHandler.END
 
 
 def cancel_filter_by_hashtag(bot, update, users_state):
-    update.message.reply_text('Fine', reply_markup=ReplyKeyboardRemove())
-    update.message.reply_text('Apply hashtag filtering via /filter_by_hashtag command')
-    update.message.reply_text('Use /new to setup a new channel')
+    update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
+    update.message.reply_text('Настроить фильтр по хештегам можно командой /filter_by_hashtag')
+    update.message.reply_text('Команда /new настроит новый канал')
     del_state(update, users_state)
     return ConversationHandler.END

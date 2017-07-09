@@ -137,7 +137,7 @@ def new_in_state_asked_channel_access(bot, update):
 def new_in_state_asked_channel_message(bot, update, db, users_state):
     user_id = update.message.from_user.id
     username = update.message.from_user.username
-    channel_id = update.message.forward_from_chat.id
+    channel_id = str(update.message.forward_from_chat.id)
     vk_group_id = users_state[user_id]['vk_domain']
 
     channel = Channel(channel_id=channel_id, vk_group_id=vk_group_id, owner_id=user_id, owner_username=username)
@@ -201,7 +201,7 @@ def filter_by_hashtag(bot, update, db, users_state):
 def filter_by_hashtag_in_state_asked_channel_id(bot, update, db, users_state):
     user_id = update.message.from_user.id
     channel_title = update.message.text
-    channel_id = users_state[user_id]['channels'][channel_title]
+    channel_id = str(users_state[user_id]['channels'][channel_title])
     channel = db.query(Channel).get(channel_id)
     users_state[user_id]['channel'] = channel
 
@@ -265,7 +265,7 @@ def recover(bot, update, db, users_state):
 def recover_in_state_asked_channel_id(bot, update, db, users_state):
     user_id = update.message.from_user.id
     channel_title = update.message.text
-    channel_id = users_state[user_id]['channels'][channel_title]
+    channel_id = str(users_state[user_id]['channels'][channel_title])
     disabled_channel = db.query(DisabledChannel).filter(DisabledChannel.channel_id == channel_id).one()
 
     db.add(

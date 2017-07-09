@@ -8,12 +8,12 @@ if __name__ == '__main__':
     telegram_token = os.getenv('TELEGRAM_TOKEN')
     vk_token = os.getenv('VK_TOKEN')
     db_url = os.getenv('DATABASE_URL')
-    use_webhook = os.getenv('USE_WEBHOOK', False)
-    webhook_domain = os.getenv('WEBHOOK_DOMAIN', None)
-    webhook_port = os.getenv('WEBHOOK_PORT', os.getenv('PORT', None))
-    vk_thread_delay = os.getenv('REPOST_DELAY', 15 * 60)  # 15 minutes
+    use_webhook = bool(int(os.getenv('USE_WEBHOOK', False)))
+    webhook_domain = os.getenv('WEBHOOK_DOMAIN', '127.0.0.1')
+    webhook_port = int(os.getenv('WEBHOOK_PORT', os.getenv('PORT', 80)))
+    vk_thread_delay = int(os.getenv('REPOST_DELAY', 15 * 60))  # 15 minutes
 
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
 
     db = models.connect_db(db_url)
     telegram_updater = run_manage_worker(telegram_token, db, use_webhook, webhook_domain, webhook_port)

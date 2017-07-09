@@ -69,6 +69,7 @@ def del_state(update, users_state):
 
 def on_error(bot, update, error):
     logger.error('Update "{}" caused error "{}"'.format(update, error))
+    traceback.print_exc()
     if update is not None:
         update.message.reply_text('Sorry, got an internal server error!')
         update.message.reply_text(str(error))

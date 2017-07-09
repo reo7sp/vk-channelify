@@ -2,9 +2,9 @@ from datetime import datetime
 from sqlalchemy import Column, DateTime, event
 
 class TimeStampMixin(object):
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     created_at._creation_order = 9998
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at._creation_order = 9998
 
     @staticmethod

@@ -13,7 +13,7 @@ if __name__ == '__main__':
     webhook_port = int(os.getenv('WEBHOOK_PORT', os.getenv('PORT', 80)))
     vk_thread_delay = int(os.getenv('REPOST_DELAY', 15 * 60))  # 15 minutes
 
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
 
     db = models.connect_db(db_url)
     telegram_updater = run_manage_worker(telegram_token, db, use_webhook, webhook_domain, webhook_port)

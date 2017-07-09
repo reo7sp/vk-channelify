@@ -48,13 +48,13 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
             if 'chat not found' in e.message:
                 logger.warning('Disabling channel because of telegram error: {}'.format(e))
                 traceback.print_exc()
-                disable_channel(channel, db)
+                disable_channel(channel, db, bot)
             else:
                 raise e
         except telegram.error.Unauthorized as e:
             logger.warning('Disabling channel because of telegram error: {}'.format(e))
             traceback.print_exc()
-            disable_channel(channel, db)
+            disable_channel(channel, db, bot)
 
 
 def fetch_group_posts(group, vk_service_code):
@@ -75,10 +75,11 @@ def is_passing_hashtag_filter(hashtag_filter, post):
     return any(hashtag in post['text'] for hashtag in hashtag_filter.split(','))
 
 
-def disable_channel(channel, db):
+def disable_channel(channel, db, bot):
     logger.warning('Disabling channel {}'.format(channel.vk_group_id))
     db.add(
         DisabledChannel(
+            channel_id=channel.channel_id,
             vk_group_id=channel.vk_group_id,
             last_vk_post_id=channel.last_vk_post_id,
             owner_id=channel.owner_id,
@@ -88,3 +89,12 @@ def disable_channel(channel, db):
     )
     db.delete(channel)
     db.commit()
+
+    try:
+        bot.send_message(channel.owner_id, 'Канал https://vk.com/{} отключен'.format(channel.vk_group_id))
+        bot.send_message(channel.owner_id, 'Так как не удается отправить в него сообщение')
+        bot.send_message(channel.owner_id, 'ID канала {}'.format(channel.channel_id))
+        bot.send_message(channel.owner_id, 'Чтобы восстановить канал, вызовите команду /recover')
+    except telegram.error.TelegramError:
+        logger.warning('Cannot send recover message to {} (id: {})'.format(channel.owner_username, channel.owner_id))
+        traceback.print_exc()

@@ -9,10 +9,10 @@ from telegram.ext import CommandHandler, Updater, ConversationHandler, Filters, 
 from vk_channelify.models import Channel
 from . import models
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def run_worker(telegram_token, db):
+def run_worker(telegram_token, db, use_webhook, webhook_domain='', webhook_port=''):
     users_state = dict()
 
     updater = Updater(telegram_token)
@@ -28,7 +28,8 @@ def run_worker(telegram_token, db):
             ASKED_CHANNEL_ACCESS_IN_NEW:
                 [RegexHandler('^I\'ve have done it$', new_in_state_asked_channel_access)],
             ASKED_CHANNEL_MESSAGE_IN_NEW:
-                [MessageHandler(Filters.forwarded, partial(new_in_state_asked_channel_message, db=db, users_state=users_state))]
+                [MessageHandler(Filters.forwarded,
+                                partial(new_in_state_asked_channel_message, db=db, users_state=users_state))]
         },
         allow_reentry=True,
         fallbacks=[CommandHandler('cancel', partial(cancel_new, users_state=users_state))]
@@ -37,15 +38,23 @@ def run_worker(telegram_token, db):
         entry_points=[CommandHandler('filter_by_hashtag', partial(filter_by_hashtag, db=db))],
         states={
             ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG: [
-                MessageHandler(Filters.text, partial(filter_by_hashtag_in_state_asked_channel_id, db=db, users_state=users_state))],
+                MessageHandler(Filters.text,
+                               partial(filter_by_hashtag_in_state_asked_channel_id, db=db, users_state=users_state))],
             ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG: [
-                MessageHandler(Filters.text, partial(filter_by_hashtag_in_state_asked_hashtags, db=db, users_state=users_state))]
+                MessageHandler(Filters.text,
+                               partial(filter_by_hashtag_in_state_asked_hashtags, db=db, users_state=users_state))]
         },
         allow_reentry=True,
         fallbacks=[CommandHandler('cancel', partial(cancel_filter_by_hashtag, users_state=users_state))]
     ))
 
-    updater.start_polling()
+    if use_webhook:
+        logger.debug('Starting webhook at {}:{}'.format(webhook_domain, webhook_port))
+        updater.start_webhook(webhook_domain, webhook_port, telegram_token)
+    else:
+        logger.debug('Starting long poll')
+        updater.start_polling()
+
     return updater
 
 
@@ -59,7 +68,7 @@ def del_state(update, users_state):
 
 
 def on_error(bot, update, error):
-    logging.warning('Update "{}" caused error "{}"'.format(update, error))
+    logger.error('Update "{}" caused error "{}"'.format(update, error))
     if update is not None:
         update.message.reply_text('Sorry, got an internal server error!')
         update.message.reply_text(str(error))

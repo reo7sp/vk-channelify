@@ -64,9 +64,25 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
 
 def fetch_group_posts(group, vk_service_code):
     time.sleep(0.35)
-    r = requests.get(
-        'https://api.vk.com/method/wall.get?domain={}&count=10&access_token={}&v=5.63'.format(group, vk_service_code))
+
+    if group.startswith('club'):
+        group_id = group[len('club'):]
+        if group_id.isdigit():
+            is_group_domain_passed = False
+        else:
+            is_group_domain_passed = True
+    else:
+        group_id = None
+        is_group_domain_passed = True
+
+    if is_group_domain_passed:
+        r = requests.get(
+            'https://api.vk.com/method/wall.get?domain={}&count=10&access_token={}&v=5.63'.format(group, vk_service_code))
+    else:
+        r = requests.get(
+            'https://api.vk.com/method/wall.get?owner_id=-{}&count=10&access_token={}&v=5.63'.format(group_id, vk_service_code))
     j = r.json()
+
     if 'response' in j:
         return j['response']['items']
     else:

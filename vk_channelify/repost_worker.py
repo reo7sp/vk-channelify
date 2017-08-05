@@ -7,6 +7,7 @@ import requests
 import telegram
 
 from vk_channelify.models.disabled_channel import DisabledChannel
+from vk_channelify.vk_errors import VkError, VkWallAccessDeniedError
 from .models import Channel
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,10 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
             logger.warning('Disabling channel because of telegram error: {}'.format(e))
             traceback.print_exc()
             disable_channel(channel, db, bot)
+        except VkWallAccessDeniedError as e:
+            logger.warning('Disabling channel because of vk error: {}'.format(e))
+            traceback.print_exc()
+            disable_channel(channel, db, bot)
 
 
 def fetch_group_posts(group, vk_service_code):
@@ -66,7 +71,11 @@ def fetch_group_posts(group, vk_service_code):
         return j['response']['items']
     else:
         logger.error('VK responded with {}'.format(j))
-        raise KeyError
+        error_code = int(j['error']['error_code'])
+        if error_code in [15, 18, 19]:
+            raise VkWallAccessDeniedError(error_code, j['error']['error_msg'], j['error']['request_params'])
+        else:
+            raise VkError(error_code, j['error']['error_msg'], j['error']['request_params'])
 
 
 def is_passing_hashtag_filter(hashtag_filter, post):

@@ -157,9 +157,13 @@ def new_in_state_asked_channel_message(bot, update, db, users_state):
     channel_id = str(update.message.forward_from_chat.id)
     vk_group_id = users_state[user_id]['vk_domain']
 
-    with db.begin():
+    try:
         channel = Channel(channel_id=channel_id, vk_group_id=vk_group_id, owner_id=user_id, owner_username=username)
         db.add(channel)
+        db.commit()
+    except:
+        db.rollback()
+        raise
 
     try:
         db.query(DisabledChannel).filter(DisabledChannel.channel_id == channel_id).delete()
@@ -236,8 +240,12 @@ def filter_by_hashtag_in_state_asked_hashtags(bot, update, db, users_state):
     user_id = update.message.from_user.id
     channel = users_state[user_id]['channel']
 
-    with db.begin():
+    try:
         channel.hashtag_filter = ','.join(h.strip() for h in update.message.text.split(','))
+        db.commit()
+    except:
+        db.rollback()
+        raise
 
     update.message.reply_text('Сохранено!')
 
@@ -291,7 +299,7 @@ def recover_in_state_asked_channel_id(bot, update, db, users_state):
     channel_id = str(users_state[user_id]['channels'][channel_title])
     disabled_channel = db.query(DisabledChannel).filter(DisabledChannel.channel_id == channel_id).one()
 
-    with db.begin():
+    try:
         db.add(
             Channel(
                 channel_id=disabled_channel.channel_id,
@@ -303,6 +311,10 @@ def recover_in_state_asked_channel_id(bot, update, db, users_state):
             )
         )
         db.delete(disabled_channel)
+        db.commit()
+    except:
+        db.rollback()
+        raise
 
     update.message.reply_text('Готово!')
     update.message.reply_text('Бот будет проверять группу каждые 15 минут')

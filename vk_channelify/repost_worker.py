@@ -43,8 +43,12 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
                     text = '{}\n\n{}'.format(post_url, post['text'])
                     bot.send_message(channel.channel_id, text)
 
-            with db.begin():
+            try:
                 channel.last_vk_post_id = max(post['id'] for post in posts)
+                db.commit()
+            except:
+                db.rollback()
+                raise
         except telegram.error.BadRequest as e:
             if 'chat not found' in e.message:
                 logger.warning('Disabling channel because of telegram error: {}'.format(e))
@@ -103,7 +107,7 @@ def is_passing_hashtag_filter(hashtag_filter, post):
 def disable_channel(channel, db, bot):
     logger.warning('Disabling channel {}'.format(channel.vk_group_id))
 
-    with db.begin():
+    try:
         db.add(
             DisabledChannel(
                 channel_id=channel.channel_id,
@@ -115,6 +119,10 @@ def disable_channel(channel, db, bot):
             )
         )
         db.delete(channel)
+        db.commit()
+    except:
+        db.rollback()
+        raise
 
     try:
         bot.send_message(channel.owner_id, 'Канал https://vk.com/{} отключен'.format(channel.vk_group_id))

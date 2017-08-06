@@ -16,7 +16,7 @@ ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG, ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG, \
 ASKED_CHANNEL_ID_IN_RECOVER = list(range(6))
 
 
-def run_worker(telegram_token, db, use_webhook, webhook_domain='', webhook_port=''):
+def run_worker(telegram_token, db_session_maker, use_webhook, webhook_domain='', webhook_port=''):
     users_state = dict()
 
     updater = Updater(telegram_token)
@@ -28,40 +28,49 @@ def run_worker(telegram_token, db, use_webhook, webhook_domain='', webhook_port=
         entry_points=[CommandHandler('new', new)],
         states={
             ASKED_VK_GROUP_LINK_IN_NEW: [
-                RegexHandler('^https://vk.com/', partial(new_in_state_asked_vk_group_link, users_state=users_state))
+                RegexHandler('^https://vk.com/', partial(new_in_state_asked_vk_group_link,
+                                                         users_state=users_state))
             ],
             ASKED_CHANNEL_ACCESS_IN_NEW: [
                 RegexHandler('^Я сделал$', new_in_state_asked_channel_access)
             ],
             ASKED_CHANNEL_MESSAGE_IN_NEW: [
-                MessageHandler(Filters.forwarded, partial(new_in_state_asked_channel_message, db=db, users_state=users_state))
+                MessageHandler(Filters.forwarded, partial(new_in_state_asked_channel_message,
+                                                          db_session_maker=db_session_maker, users_state=users_state))
             ]
         },
         allow_reentry=True,
         fallbacks=[CommandHandler('cancel', partial(cancel_new, users_state=users_state))]
     ))
     dp.add_handler(ConversationHandler(
-        entry_points=[CommandHandler('filter_by_hashtag', partial(filter_by_hashtag, db=db))],
+        entry_points=[CommandHandler('filter_by_hashtag', partial(filter_by_hashtag,
+                                                                  db_session_maker=db_session_maker))],
         states={
             ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG: [
-                MessageHandler(Filters.text, partial(filter_by_hashtag_in_state_asked_channel_id, db=db, users_state=users_state))
+                MessageHandler(Filters.text, partial(filter_by_hashtag_in_state_asked_channel_id,
+                                                     db_session_maker=db_session_maker, users_state=users_state))
             ],
             ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG: [
-                MessageHandler(Filters.text, partial(filter_by_hashtag_in_state_asked_hashtags, db=db, users_state=users_state))
+                MessageHandler(Filters.text, partial(filter_by_hashtag_in_state_asked_hashtags,
+                                                     db_session_maker=db_session_maker, users_state=users_state))
             ]
         },
         allow_reentry=True,
-        fallbacks=[CommandHandler('cancel', partial(cancel_filter_by_hashtag, users_state=users_state))]
+        fallbacks=[CommandHandler('cancel', partial(cancel_filter_by_hashtag,
+                                                    users_state=users_state))]
     ))
     dp.add_handler(ConversationHandler(
-        entry_points=[CommandHandler('recover', partial(recover, db=db, users_state=users_state))],
+        entry_points=[CommandHandler('recover', partial(recover,
+                                                        db_session_maker=db_session_maker, users_state=users_state))],
         states={
             ASKED_CHANNEL_ID_IN_RECOVER: [
-                MessageHandler(Filters.text, partial(recover_in_state_asked_channel_id, db=db, users_state=users_state))
+                MessageHandler(Filters.text, partial(recover_in_state_asked_channel_id,
+                                                     db_session_maker=db_session_maker, users_state=users_state))
             ]
         },
         allow_reentry=True,
-        fallbacks=[CommandHandler('cancel', cancel_recover)]
+        fallbacks=[CommandHandler('cancel', partial(cancel_recover,
+                                                    users_state=users_state))]
     ))
 
     if use_webhook:
@@ -83,6 +92,7 @@ def del_state(update, users_state):
 def on_error(bot, update, error):
     logger.error('Update "{}" caused error "{}"'.format(update, error))
     traceback.print_exc()
+
     if update is not None:
         update.message.reply_text('Внутренняя ошибка')
         update.message.reply_text('{}: {}'.format(type(error).__name__, str(error)))
@@ -96,6 +106,13 @@ def catch_exceptions(func):
         except Exception as e:
             on_error(bot, update, e)
 
+    return wrapper
+
+
+def make_db_session(func):
+    def wrapper(*args, db_session_maker, **kwargs):
+        return func(*args, **kwargs, db=db_session_maker())
+    
     return wrapper
 
 
@@ -128,21 +145,21 @@ def new_in_state_asked_vk_group_link(bot, update, users_state):
 
 @catch_exceptions
 def new_in_state_asked_channel_access(bot, update):
-    update.message.reply_text('Хорошо. Перешлите любое сообщение из канала',
-                              reply_markup=ReplyKeyboardRemove())
+    update.message.reply_text('Хорошо. Перешлите любое сообщение из канала', reply_markup=ReplyKeyboardRemove())
     return ASKED_CHANNEL_MESSAGE_IN_NEW
 
 
 @catch_exceptions
+@make_db_session
 def new_in_state_asked_channel_message(bot, update, db, users_state):
     user_id = update.message.from_user.id
     username = update.message.from_user.username
     channel_id = str(update.message.forward_from_chat.id)
     vk_group_id = users_state[user_id]['vk_domain']
 
-    channel = Channel(channel_id=channel_id, vk_group_id=vk_group_id, owner_id=user_id, owner_username=username)
-    db.add(channel)
-    db.commit()
+    with db.begin():
+        channel = Channel(channel_id=channel_id, vk_group_id=vk_group_id, owner_id=user_id, owner_username=username)
+        db.add(channel)
 
     try:
         db.query(DisabledChannel).filter(DisabledChannel.channel_id == channel_id).delete()
@@ -150,14 +167,13 @@ def new_in_state_asked_channel_message(bot, update, db, users_state):
         logger.warning('Cannot delete disabled channel of {}'.format(channel_id))
         traceback.print_exc()
 
-    del users_state[user_id]
-
     bot.send_message(channel_id, 'Канал работает с помощью @vk_channelify_bot')
 
     update.message.reply_text('Готово!')
     update.message.reply_text('Бот будет проверять группу каждые 15 минут')
     update.message.reply_text('Настроить фильтр по хештегам можно командой /filter_by_hashtag')
     update.message.reply_text('Команда /new настроит новый канал')
+
     del_state(update, users_state)
     return ConversationHandler.END
 
@@ -166,11 +182,13 @@ def new_in_state_asked_channel_message(bot, update, db, users_state):
 def cancel_new(bot, update, users_state):
     update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
     update.message.reply_text('Команда /new настроит новый канал')
+
     del_state(update, users_state)
     return ConversationHandler.END
 
 
 @catch_exceptions
+@make_db_session
 def filter_by_hashtag(bot, update, db, users_state):
     user_id = update.message.from_user.id
 
@@ -193,11 +211,11 @@ def filter_by_hashtag(bot, update, db, users_state):
         keyboard.append(keyboard_row)
 
     update.message.reply_text('Выберите канал', reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
-
     return ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG
 
 
 @catch_exceptions
+@make_db_session
 def filter_by_hashtag_in_state_asked_channel_id(bot, update, db, users_state):
     user_id = update.message.from_user.id
     channel_title = update.message.text
@@ -209,19 +227,20 @@ def filter_by_hashtag_in_state_asked_channel_id(bot, update, db, users_state):
         update.message.reply_text('Текущий фильтр по хештегам:')
         update.message.reply_text(channel.hashtag_filter)
     update.message.reply_text('Напишите новые хештеги (разделяйте запятой):')
-
     return ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG
 
 
 @catch_exceptions
+@make_db_session
 def filter_by_hashtag_in_state_asked_hashtags(bot, update, db, users_state):
     user_id = update.message.from_user.id
     channel = users_state[user_id]['channel']
 
-    channel.hashtag_filter = ','.join(h.strip() for h in update.message.text.split(','))
-    db.commit()
+    with db.begin():
+        channel.hashtag_filter = ','.join(h.strip() for h in update.message.text.split(','))
 
     update.message.reply_text('Сохранено!')
+
     del_state(update, users_state)
     return ConversationHandler.END
 
@@ -231,11 +250,13 @@ def cancel_filter_by_hashtag(bot, update, users_state):
     update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
     update.message.reply_text('Настроить фильтр по хештегам можно командой /filter_by_hashtag')
     update.message.reply_text('Команда /new настроит новый канал')
+
     del_state(update, users_state)
     return ConversationHandler.END
 
 
 @catch_exceptions
+@make_db_session
 def recover(bot, update, db, users_state):
     user_id = update.message.from_user.id
 
@@ -255,6 +276,7 @@ def recover(bot, update, db, users_state):
 
     if len(keyboard) == 0:
         update.message.reply_text('Нет каналов, которые можно восстановить')
+        del_state(update, users_state)
         return ConversationHandler.END
     else:
         update.message.reply_text('Выберите канал', reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
@@ -262,35 +284,39 @@ def recover(bot, update, db, users_state):
 
 
 @catch_exceptions
+@make_db_session
 def recover_in_state_asked_channel_id(bot, update, db, users_state):
     user_id = update.message.from_user.id
     channel_title = update.message.text
     channel_id = str(users_state[user_id]['channels'][channel_title])
     disabled_channel = db.query(DisabledChannel).filter(DisabledChannel.channel_id == channel_id).one()
 
-    db.add(
-        Channel(
-            channel_id=disabled_channel.channel_id,
-            vk_group_id=disabled_channel.vk_group_id,
-            last_vk_post_id=disabled_channel.last_vk_post_id,
-            owner_id=disabled_channel.owner_id,
-            owner_username=disabled_channel.owner_username,
-            hashtag_filter=disabled_channel.hashtag_filter
+    with db.begin():
+        db.add(
+            Channel(
+                channel_id=disabled_channel.channel_id,
+                vk_group_id=disabled_channel.vk_group_id,
+                last_vk_post_id=disabled_channel.last_vk_post_id,
+                owner_id=disabled_channel.owner_id,
+                owner_username=disabled_channel.owner_username,
+                hashtag_filter=disabled_channel.hashtag_filter
+            )
         )
-    )
-    db.delete(disabled_channel)
-    db.commit()
+        db.delete(disabled_channel)
 
     update.message.reply_text('Готово!')
     update.message.reply_text('Бот будет проверять группу каждые 15 минут')
     update.message.reply_text('Настроить фильтр по хештегам можно командой /filter_by_hashtag')
     update.message.reply_text('Команда /new настроит новый канал')
 
+    del_state(update, users_state)
     return ConversationHandler.END
 
 
 @catch_exceptions
-def cancel_recover(bot, update):
+def cancel_recover(bot, update, users_state):
     update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
     update.message.reply_text('Команда /new настроит новый канал')
+
+    del_state(update, users_state)
     return ConversationHandler.END

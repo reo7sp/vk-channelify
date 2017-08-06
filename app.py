@@ -15,8 +15,8 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logging.INFO)
 
-    db = models.connect_db(db_url)
-    telegram_updater = run_manage_worker(telegram_token, db, use_webhook, webhook_domain, webhook_port)
-    repost_thread = run_repost_worker(vk_thread_delay, vk_token, telegram_token, db)
+    db_session_maker = models.make_session_maker(db_url)
+    telegram_updater = run_manage_worker(telegram_token, db_session_maker, use_webhook, webhook_domain, webhook_port)
+    repost_thread = run_repost_worker(vk_thread_delay, vk_token, telegram_token, db_session_maker)
 
     telegram_updater.idle()

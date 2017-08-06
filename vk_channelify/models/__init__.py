@@ -15,8 +15,6 @@ from .channel import Channel
 from .disabled_channel import DisabledChannel
 
 
-def connect_db(url):
+def make_session_maker(url):
     engine = create_engine(url)
-    Session = sessionmaker(bind=engine)
-    db = Session()
-    return db
+    return sessionmaker(bind=engine)

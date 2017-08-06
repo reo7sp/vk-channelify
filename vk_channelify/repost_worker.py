@@ -13,17 +13,17 @@ from .models import Channel
 logger = logging.getLogger(__name__)
 
 
-def run_worker(iteration_delay, vk_service_code, telegram_token, db):
-    thread = Thread(target=run_worker_inside_thread, args=(iteration_delay, vk_service_code, telegram_token, db),
+def run_worker(iteration_delay, vk_service_code, telegram_token, db_session_maker):
+    thread = Thread(target=run_worker_inside_thread, args=(iteration_delay, vk_service_code, telegram_token, db_session_maker),
                     daemon=True)
     thread.start()
     return thread
 
 
-def run_worker_inside_thread(iteration_delay, vk_service_code, telegram_token, db):
+def run_worker_inside_thread(iteration_delay, vk_service_code, telegram_token, db_session_maker):
     while True:
         try:
-            run_worker_iteration(vk_service_code, telegram_token, db)
+            run_worker_iteration(vk_service_code, telegram_token, db_session_maker())
         except Exception as e:
             logger.error('Iteration was failed because of {}'.format(e))
             traceback.print_exc()
@@ -43,8 +43,8 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
                     text = '{}\n\n{}'.format(post_url, post['text'])
                     bot.send_message(channel.channel_id, text)
 
-            channel.last_vk_post_id = max(post['id'] for post in posts)
-            db.commit()
+            with db.begin():
+                channel.last_vk_post_id = max(post['id'] for post in posts)
         except telegram.error.BadRequest as e:
             if 'chat not found' in e.message:
                 logger.warning('Disabling channel because of telegram error: {}'.format(e))
@@ -102,18 +102,19 @@ def is_passing_hashtag_filter(hashtag_filter, post):
 
 def disable_channel(channel, db, bot):
     logger.warning('Disabling channel {}'.format(channel.vk_group_id))
-    db.add(
-        DisabledChannel(
-            channel_id=channel.channel_id,
-            vk_group_id=channel.vk_group_id,
-            last_vk_post_id=channel.last_vk_post_id,
-            owner_id=channel.owner_id,
-            owner_username=channel.owner_username,
-            hashtag_filter=channel.hashtag_filter
+
+    with db.begin():
+        db.add(
+            DisabledChannel(
+                channel_id=channel.channel_id,
+                vk_group_id=channel.vk_group_id,
+                last_vk_post_id=channel.last_vk_post_id,
+                owner_id=channel.owner_id,
+                owner_username=channel.owner_username,
+                hashtag_filter=channel.hashtag_filter
+            )
         )
-    )
-    db.delete(channel)
-    db.commit()
+        db.delete(channel)
 
     try:
         bot.send_message(channel.owner_id, 'Канал https://vk.com/{} отключен'.format(channel.vk_group_id))

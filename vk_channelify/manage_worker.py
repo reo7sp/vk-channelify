@@ -44,7 +44,7 @@ def run_worker(telegram_token, db_session_maker, use_webhook, webhook_domain='',
     ))
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('filter_by_hashtag', partial(filter_by_hashtag,
-                                                                  db_session_maker=db_session_maker))],
+                                                                  db_session_maker=db_session_maker, users_state=users_state))],
         states={
             ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG: [
                 MessageHandler(Filters.text, partial(filter_by_hashtag_in_state_asked_channel_id,

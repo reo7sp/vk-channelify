@@ -41,6 +41,8 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
                 if post['id'] > channel.last_vk_post_id and is_passing_hashtag_filter(channel.hashtag_filter, post):
                     post_url = 'https://vk.com/wall{}_{}'.format(post['owner_id'], post['id'])
                     text = '{}\n\n{}'.format(post_url, post['text'])
+                    if len(text) > 4000:
+                        text = text[0:4000] + '...'
                     bot.send_message(channel.channel_id, text)
 
             try:

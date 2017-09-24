@@ -12,12 +12,3 @@ class VkError(Exception):
 class VkWallAccessDeniedError(VkError):
     def __init__(self, code, message, request_params):
         super(VkWallAccessDeniedError, self).__init__(code, message, request_params)
-
-
-class VkGroupDoesntExistError(VkError):
-    def __init__(self, group):
-        super(VkError, self).__init__()
-        self.group = group
-
-    def __str__(self):
-        return 'VkError: Group {} doesnt exist'.format(self.group)

@@ -94,7 +94,7 @@ def fetch_group_posts(group, vk_service_code):
     else:
         logger.error('VK responded with {}'.format(j))
         error_code = int(j['error']['error_code'])
-        if error_code in [15, 18, 19]:
+        if error_code in [15, 18, 19, 100]:
             raise VkWallAccessDeniedError(error_code, j['error']['error_msg'], j['error']['request_params'])
         else:
             raise VkError(error_code, j['error']['error_msg'], j['error']['request_params'])

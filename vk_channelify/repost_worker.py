@@ -45,12 +45,12 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
                         text = text[0:4000] + '...'
                     bot.send_message(channel.channel_id, text)
 
-            try:
-                channel.last_vk_post_id = max(post['id'] for post in posts)
-                db.commit()
-            except:
-                db.rollback()
-                raise
+                    try:
+                        channel.last_vk_post_id = max(post['id'] for post in posts)
+                        db.commit()
+                    except:
+                        db.rollback()
+                        raise
         except telegram.error.BadRequest as e:
             if 'chat not found' in e.message.lower():
                 logger.warning('Disabling channel because of telegram error: {}'.format(e))

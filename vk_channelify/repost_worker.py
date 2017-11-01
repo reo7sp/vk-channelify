@@ -52,7 +52,7 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
                 db.rollback()
                 raise
         except telegram.error.BadRequest as e:
-            if 'chat not found' in e.message:
+            if 'chat not found' in e.message.lower():
                 logger.warning('Disabling channel because of telegram error: {}'.format(e))
                 traceback.print_exc()
                 disable_channel(channel, db, bot)

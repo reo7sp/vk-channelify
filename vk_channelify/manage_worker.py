@@ -111,8 +111,11 @@ def catch_exceptions(func):
 
 def make_db_session(func):
     def wrapper(*args, db_session_maker, **kwargs):
-        return func(*args, **kwargs, db=db_session_maker())
-    
+        db = db_session_maker()
+        result = func(*args, **kwargs, db=db)
+        db.close()
+        return result
+
     return wrapper
 
 

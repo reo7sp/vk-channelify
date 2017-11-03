@@ -39,7 +39,7 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
         try:
             posts = fetch_group_posts(channel.vk_group_id, vk_service_code)
 
-            for post in posts[::-1]:
+            for post in sorted(posts, key=lambda p: p['id']):
                 if post['id'] > channel.last_vk_post_id and is_passing_hashtag_filter(channel.hashtag_filter, post):
                     post_url = 'https://vk.com/wall{}_{}'.format(post['owner_id'], post['id'])
                     text = '{}\n\n{}'.format(post_url, post['text'])
@@ -48,7 +48,7 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
                     bot.send_message(channel.channel_id, text)
 
                     try:
-                        channel.last_vk_post_id = max(post['id'] for post in posts)
+                        channel.last_vk_post_id = post['id']
                         db.commit()
                     except:
                         db.rollback()

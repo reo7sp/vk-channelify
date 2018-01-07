@@ -1,6 +1,11 @@
 # vk-channelify
-Create Telegram channel from VK group.
 
-[@vk_channelify_bot](https://t.me/vk_channelify_bot)
+Пересылает новости из группы ВК в Телеграм канал.
+
+Предполагается, что 1 канал = 1 группа ВК.
+
+Ссылка: [@vk_channelify_bot](https://t.me/vk_channelify_bot)
+
+## Как это работает
 
 ![](http://imgur.com/5rQ8eY5.png)

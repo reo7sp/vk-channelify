@@ -1,0 +1,5 @@
+#!/bin/sh
+
+# CWD: vk-channelify repo
+
+alembic upgrade head

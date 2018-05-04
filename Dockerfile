@@ -8,5 +8,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 EXPOSE 80
+ENV PORT=80
 ENV PYTHONPATH=/usr/src/app
 CMD ["python", "app.py"]

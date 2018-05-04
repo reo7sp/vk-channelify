@@ -123,7 +123,7 @@ def extract_group_id_if_has(group_name):
 def is_passing_hashtag_filter(hashtag_filter, post):
     if hashtag_filter is None:
         return True
-    return any(hashtag in post['text'] for hashtag in hashtag_filter.split(','))
+    return any(hashtag.strip() in post['text'] for hashtag in hashtag_filter.split(','))
 
 
 def disable_channel(channel, db, bot):

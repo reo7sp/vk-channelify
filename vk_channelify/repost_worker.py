@@ -84,7 +84,7 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
             traceback.print_exc()
             disable_channel(channel, db, bot)
         except telegram.error.TimedOut as e:
-            logger.warning('Got telegram TimedOut error: {}'.format(e))
+            logger.warning('Got telegram TimedOut error on channel {} (id: {})'.format(channel.vk_group_id, channel.channel_id))
         except VkWallAccessDeniedError as e:
             logger.warning('Disabling channel because of vk error: {}'.format(e))
             traceback.print_exc()
@@ -133,7 +133,7 @@ def is_passing_hashtag_filter(hashtag_filter, post):
 
 
 def disable_channel(channel, db, bot):
-    logger.warning('Disabling channel {}'.format(channel.vk_group_id))
+    logger.warning('Disabling channel {} (id: {})'.format(channel.vk_group_id, channel.channel_id))
 
     try:
         db.add(

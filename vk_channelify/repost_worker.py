@@ -24,7 +24,9 @@ def run_worker(iteration_delay, vk_service_code, telegram_token, db_session_make
 
 def run_worker_inside_thread(iteration_delay, vk_service_code, telegram_token, db_session_maker):
     while True:
-        logger.error('New iteration {}'.format(datetime.datetime.now()))
+        start_time = datetime.datetime.now()
+        logger.info('New iteration {}'.format(start_time))
+
         try:
             db = db_session_maker()
             run_worker_iteration(vk_service_code, telegram_token, db)
@@ -37,6 +39,10 @@ def run_worker_inside_thread(iteration_delay, vk_service_code, telegram_token, d
             except Exception as e:
                 logger.error('Iteration has failed db.close() because of {}'.format(e))
                 traceback.print_exc()
+
+        end_time = datetime.datetime.now()
+        logger.info('Finished iteration {} ({})'.format(end_time, end_time - start_time))
+
         time.sleep(iteration_delay)
 
 

@@ -1,3 +1,4 @@
+import datetime
 import time
 import traceback
 from threading import Thread
@@ -14,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 def run_worker(iteration_delay, vk_service_code, telegram_token, db_session_maker):
-    thread = Thread(target=run_worker_inside_thread, args=(iteration_delay, vk_service_code, telegram_token, db_session_maker),
+    thread = Thread(target=run_worker_inside_thread,
+                    args=(iteration_delay, vk_service_code, telegram_token, db_session_maker),
                     daemon=True)
     thread.start()
     return thread
@@ -22,13 +24,19 @@ def run_worker(iteration_delay, vk_service_code, telegram_token, db_session_make
 
 def run_worker_inside_thread(iteration_delay, vk_service_code, telegram_token, db_session_maker):
     while True:
+        logger.error('New iteration {}'.format(datetime.datetime.now()))
         try:
             db = db_session_maker()
             run_worker_iteration(vk_service_code, telegram_token, db)
-            db.close()
         except Exception as e:
             logger.error('Iteration was failed because of {}'.format(e))
             traceback.print_exc()
+        finally:
+            try:
+                db.close()
+            except Exception as e:
+                logger.error('Iteration has failed db.close() because of {}'.format(e))
+                traceback.print_exc()
         time.sleep(iteration_delay)
 
 
@@ -40,19 +48,24 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
             posts = fetch_group_posts(channel.vk_group_id, vk_service_code)
 
             for post in sorted(posts, key=lambda p: p['id']):
-                if post['id'] > channel.last_vk_post_id and is_passing_hashtag_filter(channel.hashtag_filter, post):
-                    post_url = 'https://vk.com/wall{}_{}'.format(post['owner_id'], post['id'])
-                    text = '{}\n\n{}'.format(post_url, post['text'])
-                    if len(text) > 4000:
-                        text = text[0:4000] + '...'
-                    bot.send_message(channel.channel_id, text)
+                if post['id'] <= channel.last_vk_post_id:
+                    continue
+                if not is_passing_hashtag_filter(channel.hashtag_filter, post):
+                    continue
 
-                    try:
-                        channel.last_vk_post_id = post['id']
-                        db.commit()
-                    except:
-                        db.rollback()
-                        raise
+                post_url = 'https://vk.com/wall{}_{}'.format(post['owner_id'], post['id'])
+                text = '{}\n\n{}'.format(post_url, post['text'])
+                if len(text) > 4000:
+                    text = text[0:4000] + '...'
+
+                bot.send_message(channel.channel_id, text)
+
+                try:
+                    channel.last_vk_post_id = post['id']
+                    db.commit()
+                except:
+                    db.rollback()
+                    raise
         except telegram.error.BadRequest as e:
             if 'chat not found' in e.message.lower():
                 logger.warning('Disabling channel because of telegram error: {}'.format(e))
@@ -64,6 +77,8 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
             logger.warning('Disabling channel because of telegram error: {}'.format(e))
             traceback.print_exc()
             disable_channel(channel, db, bot)
+        except telegram.error.TimedOut as e:
+            logger.warning('Got telegram TimedOut error: {}'.format(e))
         except VkWallAccessDeniedError as e:
             logger.warning('Disabling channel because of vk error: {}'.format(e))
             traceback.print_exc()
@@ -73,33 +88,36 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
 def fetch_group_posts(group, vk_service_code):
     time.sleep(0.35)
 
-    if group.startswith('club'):
-        group_id = group[len('club'):]
-        if group_id.isdigit():
-            is_group_domain_passed = False
-        else:
-            is_group_domain_passed = True
-    else:
-        group_id = None
-        is_group_domain_passed = True
+    group_id = extract_group_id_if_has(group)
+    is_group_domain_passed = group_id is None
 
     if is_group_domain_passed:
-        r = requests.get(
-            'https://api.vk.com/method/wall.get?domain={}&count=10&access_token={}&v=5.63'.format(group, vk_service_code))
+        url = 'https://api.vk.com/method/wall.get?domain={}&count=10&access_token={}&v=5.63'.format(group, vk_service_code)
+        r = requests.get(url)
     else:
-        r = requests.get(
-            'https://api.vk.com/method/wall.get?owner_id=-{}&count=10&access_token={}&v=5.63'.format(group_id, vk_service_code))
+        url = 'https://api.vk.com/method/wall.get?owner_id=-{}&count=10&access_token={}&v=5.63'.format(group_id, vk_service_code)
+        r = requests.get(url)
     j = r.json()
 
-    if 'response' in j:
-        return j['response']['items']
-    else:
+    if 'response' not in j:
         logger.error('VK responded with {}'.format(j))
         error_code = int(j['error']['error_code'])
         if error_code in [15, 18, 19, 100]:
             raise VkWallAccessDeniedError(error_code, j['error']['error_msg'], j['error']['request_params'])
         else:
             raise VkError(error_code, j['error']['error_msg'], j['error']['request_params'])
+
+    return j['response']['items']
+
+
+def extract_group_id_if_has(group_name):
+    domainless_group_prefixes = ['club', 'public']
+    for prefix in domainless_group_prefixes:
+        if group_name.startswith(prefix):
+            group_id = group_name[len(prefix):]
+            if group_id.isdigit():
+                return group_id
+    return None
 
 
 def is_passing_hashtag_filter(hashtag_filter, post):

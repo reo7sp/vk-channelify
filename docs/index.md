@@ -8,7 +8,7 @@
 
 ## Как это работает
 
-![](http://imgur.com/5rQ8eY5.png)
+![](//imgur.com/5rQ8eY5.png)
 
 ---
 

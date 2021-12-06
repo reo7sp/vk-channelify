@@ -303,16 +303,12 @@ def recover_in_state_asked_channel_id(bot, update, db, users_state):
     disabled_channel = db.query(DisabledChannel).filter(DisabledChannel.channel_id == channel_id).one()
 
     try:
-        db.add(
-            Channel(
-                channel_id=disabled_channel.channel_id,
-                vk_group_id=disabled_channel.vk_group_id,
-                last_vk_post_id=disabled_channel.last_vk_post_id,
-                owner_id=disabled_channel.owner_id,
-                owner_username=disabled_channel.owner_username,
-                hashtag_filter=disabled_channel.hashtag_filter
-            )
-        )
+        db.add(Channel(channel_id=disabled_channel.channel_id,
+                       vk_group_id=disabled_channel.vk_group_id,
+                       last_vk_post_id=disabled_channel.last_vk_post_id,
+                       owner_id=disabled_channel.owner_id,
+                       owner_username=disabled_channel.owner_username,
+                       hashtag_filter=disabled_channel.hashtag_filter))
         db.delete(disabled_channel)
         db.commit()
     except:

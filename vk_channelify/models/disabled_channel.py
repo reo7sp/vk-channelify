@@ -13,4 +13,3 @@ class DisabledChannel(Base):
     owner_id = Column(String, nullable=False)
     owner_username = Column(String)
     hashtag_filter = Column(String)
-

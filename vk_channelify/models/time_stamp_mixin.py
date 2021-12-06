@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import Column, DateTime, event
 
-class TimeStampMixin(object):
+class TimeStampMixin:
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     created_at._creation_order = 9998
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)

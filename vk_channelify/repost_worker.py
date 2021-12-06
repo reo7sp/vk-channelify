@@ -98,10 +98,10 @@ def fetch_group_posts(group, vk_service_code):
     is_group_domain_passed = group_id is None
 
     if is_group_domain_passed:
-        url = 'https://api.vk.com/method/wall.get?domain={}&count=10&access_token={}&v=5.63'.format(group, vk_service_code)
+        url = 'https://api.vk.com/method/wall.get?domain={}&count=10&access_token={}&v=5.131'.format(group, vk_service_code)
         r = requests.get(url)
     else:
-        url = 'https://api.vk.com/method/wall.get?owner_id=-{}&count=10&access_token={}&v=5.63'.format(group_id, vk_service_code)
+        url = 'https://api.vk.com/method/wall.get?owner_id=-{}&count=10&access_token={}&v=5.131'.format(group_id, vk_service_code)
         r = requests.get(url)
     j = r.json()
 
@@ -136,16 +136,12 @@ def disable_channel(channel, db, bot):
     logger.warning('Disabling channel {} (id: {})'.format(channel.vk_group_id, channel.channel_id))
 
     try:
-        db.add(
-            DisabledChannel(
-                channel_id=channel.channel_id,
-                vk_group_id=channel.vk_group_id,
-                last_vk_post_id=channel.last_vk_post_id,
-                owner_id=channel.owner_id,
-                owner_username=channel.owner_username,
-                hashtag_filter=channel.hashtag_filter
-            )
-        )
+        db.add(DisabledChannel(channel_id=channel.channel_id,
+                               vk_group_id=channel.vk_group_id,
+                               last_vk_post_id=channel.last_vk_post_id,
+                               owner_id=channel.owner_id,
+                               owner_username=channel.owner_username,
+                               hashtag_filter=channel.hashtag_filter))
         db.delete(channel)
         db.commit()
     except:

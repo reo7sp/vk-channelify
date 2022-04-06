@@ -12,6 +12,6 @@
 
 ---
 
-Сделано [@reo7sp](https://oleg.rocks)
+[Telegram](https://t.me/olezhes)
 
 [Исходный код](https://github.com/reo7sp/vk-channelify)

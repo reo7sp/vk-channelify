@@ -96,7 +96,7 @@ def on_error(bot, update, error):
     if update is not None:
         update.message.reply_text('Внутренняя ошибка')
         update.message.reply_text('{}: {}'.format(type(error).__name__, str(error)))
-        update.message.reply_text('Сообщите @reo7sp')
+        update.message.reply_text('Сообщите @olezhes')
 
 
 def catch_exceptions(func):
@@ -122,7 +122,6 @@ def make_db_session(func):
 @catch_exceptions
 def start(bot, update):
     update.message.reply_text('Команда /new настроит новый канал. В канал будут пересылаться посты из группы ВК')
-    update.message.reply_text('По вопросам пишите @reo7sp')
 
 
 @catch_exceptions

@@ -1,6 +1,6 @@
-SQLAlchemy
-alembic
-psycopg2
+SQLAlchemy==1.3
+alembic==1.2
+psycopg2==2.8
 psycopg2-binary
-requests
-python-telegram-bot==v12.0.0
+requests==2.22
+python-telegram-bot==12.0

@@ -4,7 +4,7 @@ from functools import partial
 import logging
 import telegram
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import CommandHandler, Updater, ConversationHandler, Filters, MessageHandler, RegexHandler
+from telegram.ext import CommandHandler, Updater, ConversationHandler, filters, MessageHandler, RegexHandler
 
 from . import models
 from .models import Channel, DisabledChannel
@@ -35,7 +35,7 @@ def run_worker(telegram_token, db_session_maker, use_webhook, webhook_domain='',
                 RegexHandler('^Я сделал$', new_in_state_asked_channel_access)
             ],
             ASKED_CHANNEL_MESSAGE_IN_NEW: [
-                MessageHandler(Filters.forwarded, partial(new_in_state_asked_channel_message,
+                MessageHandler(filters.FORWARDED, partial(new_in_state_asked_channel_message,
                                                           db_session_maker=db_session_maker, users_state=users_state))
             ]
         },
@@ -47,11 +47,11 @@ def run_worker(telegram_token, db_session_maker, use_webhook, webhook_domain='',
                                                                   db_session_maker=db_session_maker, users_state=users_state))],
         states={
             ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG: [
-                MessageHandler(Filters.text, partial(filter_by_hashtag_in_state_asked_channel_id,
+                MessageHandler(filters.TEXT, partial(filter_by_hashtag_in_state_asked_channel_id,
                                                      db_session_maker=db_session_maker, users_state=users_state))
             ],
             ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG: [
-                MessageHandler(Filters.text, partial(filter_by_hashtag_in_state_asked_hashtags,
+                MessageHandler(filters.TEXT, partial(filter_by_hashtag_in_state_asked_hashtags,
                                                      db_session_maker=db_session_maker, users_state=users_state))
             ]
         },
@@ -64,7 +64,7 @@ def run_worker(telegram_token, db_session_maker, use_webhook, webhook_domain='',
                                                         db_session_maker=db_session_maker, users_state=users_state))],
         states={
             ASKED_CHANNEL_ID_IN_RECOVER: [
-                MessageHandler(Filters.text, partial(recover_in_state_asked_channel_id,
+                MessageHandler(filters.TEXT, partial(recover_in_state_asked_channel_id,
                                                      db_session_maker=db_session_maker, users_state=users_state))
             ]
         },

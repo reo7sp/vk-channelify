@@ -3,4 +3,4 @@ alembic
 psycopg2
 psycopg2-binary
 requests
-python-telegram-bot
+python-telegram-bot==v12.0.0

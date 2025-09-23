@@ -28,7 +28,7 @@ def run_worker(telegram_token, db_session_maker, use_webhook, webhook_domain='',
         entry_points=[CommandHandler('new', new)],
         states={
             ASKED_VK_GROUP_LINK_IN_NEW: [
-                RegexHandler('^https://vk.com/', partial(new_in_state_asked_vk_group_link,
+                RegexHandler('^https://vk.ru/', partial(new_in_state_asked_vk_group_link,
                                                          users_state=users_state))
             ],
             ASKED_CHANNEL_ACCESS_IN_NEW: [

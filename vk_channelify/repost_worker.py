@@ -59,7 +59,7 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
                 if not is_passing_hashtag_filter(channel.hashtag_filter, post):
                     continue
 
-                post_url = 'https://vk.com/wall{}_{}'.format(post['owner_id'], post['id'])
+                post_url = 'https://vk.ru/wall{}_{}'.format(post['owner_id'], post['id'])
                 text = '{}\n\n{}'.format(post_url, post['text'])
                 if len(text) > 4000:
                     text = text[0:4000] + '...'
@@ -98,10 +98,10 @@ def fetch_group_posts(group, vk_service_code):
     is_group_domain_passed = group_id is None
 
     if is_group_domain_passed:
-        url = 'https://api.vk.com/method/wall.get?domain={}&count=10&access_token={}&v=5.131'.format(group, vk_service_code)
+        url = 'https://api.vk.ru/method/wall.get?domain={}&count=10&access_token={}&v=5.131'.format(group, vk_service_code)
         r = requests.get(url)
     else:
-        url = 'https://api.vk.com/method/wall.get?owner_id=-{}&count=10&access_token={}&v=5.131'.format(group_id, vk_service_code)
+        url = 'https://api.vk.ru/method/wall.get?owner_id=-{}&count=10&access_token={}&v=5.131'.format(group_id, vk_service_code)
         r = requests.get(url)
     j = r.json()
 
@@ -149,7 +149,7 @@ def disable_channel(channel, db, bot):
         raise
 
     try:
-        bot.send_message(channel.owner_id, 'Канал https://vk.com/{} отключен'.format(channel.vk_group_id))
+        bot.send_message(channel.owner_id, 'Канал https://vk.ru/{} отключен'.format(channel.vk_group_id))
         bot.send_message(channel.owner_id, 'Так как не удается отправить в него сообщение')
         bot.send_message(channel.owner_id, 'ID канала {}'.format(channel.channel_id))
         bot.send_message(channel.owner_id, 'Чтобы восстановить канал, вызовите команду /recover')

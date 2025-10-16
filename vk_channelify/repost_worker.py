@@ -53,6 +53,7 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
         try:
             log_id = '{} (id: {})'.format(channel.vk_group_id, channel.channel_id)
             posts = fetch_group_posts(channel.vk_group_id, vk_service_code)
+            posts_sent = 0
 
             for post in sorted(posts, key=lambda p: p['id']):
                 if post['id'] <= channel.last_vk_post_id:
@@ -66,6 +67,7 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
                     text = text[0:4000] + '...'
 
                 bot.send_message(channel.channel_id, text)
+                posts_sent += 1
 
                 try:
                     channel.last_vk_post_id = post['id']
@@ -74,8 +76,8 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
                     db.rollback()
                     raise
 
-            if posts:
-                logger.info('Success sent {} posts on channel {}'.format(len(posts), log_id))
+            if posts_sent:
+                logger.info('Success sent {} posts on channel {}'.format(posts_sent, log_id))
 
         except telegram.error.BadRequest as e:
             if 'chat not found' in e.message.lower():

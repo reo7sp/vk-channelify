@@ -51,6 +51,7 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
 
     for channel in db.query(Channel):
         try:
+            log_id = '{} (id: {})'.format(channel.vk_group_id, channel.channel_id)
             posts = fetch_group_posts(channel.vk_group_id, vk_service_code)
 
             for post in sorted(posts, key=lambda p: p['id']):
@@ -72,21 +73,28 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
                 except:
                     db.rollback()
                     raise
+
+            if posts:
+                logger.info('Success sent {} posts on channel {}'.format(len(posts), log_id))
+
         except telegram.error.BadRequest as e:
             if 'chat not found' in e.message.lower():
-                logger.warning('Disabling channel because of telegram error: {}'.format(e))
+                logger.warning('Disabling channel {} because of telegram error: {}'.format(log_id, e))
                 traceback.print_exc()
                 disable_channel(channel, db, bot)
             else:
                 raise e
+
         except telegram.error.Unauthorized as e:
-            logger.warning('Disabling channel because of telegram error: {}'.format(e))
+            logger.warning('Disabling channel {} because of telegram error: {}'.format(log_id, e))
             traceback.print_exc()
             disable_channel(channel, db, bot)
+
         except telegram.error.TimedOut as e:
-            logger.warning('Got telegram TimedOut error on channel {} (id: {})'.format(channel.vk_group_id, channel.channel_id))
+            logger.warning('Got telegram TimedOut error on channel {}'.format(log_id))
+
         except VkWallAccessDeniedError as e:
-            logger.warning('Disabling channel because of vk error: {}'.format(e))
+            logger.warning('Disabling channel {} because of vk error: {}'.format(log_id, e))
             traceback.print_exc()
             disable_channel(channel, db, bot)
 

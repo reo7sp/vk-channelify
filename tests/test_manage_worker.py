@@ -121,10 +121,11 @@ class TestNewInStateAskedChannelMessage:
         db.commit.side_effect = Exception('DB Error')
         db_session_maker = Mock(return_value=db)
 
-        new_in_state_asked_channel_message(bot, update, db_session_maker=db_session_maker, users_state=users_state)
+        with pytest.raises(Exception):
+            new_in_state_asked_channel_message(bot, update, db_session_maker=db_session_maker, users_state=users_state)
 
         db.rollback.assert_called_once()
-        update.message.reply_text.assert_called()
+        mock_metrics.telegram_conversations_total.labels.assert_called_with(type='new', status='failed')
 
 
 class TestCancelNew:

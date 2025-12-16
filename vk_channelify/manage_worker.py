@@ -90,13 +90,13 @@ def del_state(update, users_state):
         del users_state[update.message.from_user.id]
 
 
-def on_error(bot, update, error):
-    logger.error('Update "{}" caused error "{}"'.format(update, error))
+def on_error(update, context):
+    logger.error('Update "{}" caused error "{}"'.format(update, context.error))
     traceback.print_exc()
 
-    if update is not None:
+    if update is not None and hasattr(update, 'message') and update.message is not None:
         update.message.reply_text('Внутренняя ошибка')
-        update.message.reply_text('{}: {}'.format(type(error).__name__, str(error)))
+        update.message.reply_text('{}: {}'.format(type(context.error).__name__, str(context.error)))
         update.message.reply_text('Сообщите @olezhes')
 
 
@@ -106,7 +106,9 @@ def catch_exceptions(func):
         try:
             return func(bot, update, *args, **kwargs)
         except Exception as e:
-            on_error(bot, update, e)
+            logger.error('Exception in {}: {}'.format(func.__name__, e))
+            traceback.print_exc()
+            raise
 
     return wrapper
 

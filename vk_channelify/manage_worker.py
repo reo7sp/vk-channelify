@@ -1,12 +1,13 @@
 import traceback
-from functools import partial
+import time
+from functools import partial, wraps
 
 import logging
 import telegram
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import CommandHandler, Updater, ConversationHandler, Filters, MessageHandler, RegexHandler
 
-from . import models
+from . import models, metrics
 from .models import Channel, DisabledChannel
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,7 @@ def on_error(bot, update, error):
 
 
 def catch_exceptions(func):
+    @wraps(func)
     def wrapper(bot, update, *args, **kwargs):
         try:
             return func(bot, update, *args, **kwargs)
@@ -109,7 +111,29 @@ def catch_exceptions(func):
     return wrapper
 
 
+def observe_metrics(command_name):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(bot, update, *args, **kwargs):
+            metrics.telegram_commands_total.labels(command=command_name).inc()
+            start_time = time.time()
+            try:
+                result = func(bot, update, *args, **kwargs)
+                duration = time.time() - start_time
+                metrics.telegram_command_duration_seconds.labels(command=command_name).observe(duration)
+                return result
+            except Exception as e:
+                duration = time.time() - start_time
+                metrics.telegram_command_duration_seconds.labels(command=command_name).observe(duration)
+                raise e
+
+        return wrapper
+
+    return decorator
+
+
 def make_db_session(func):
+    @wraps(func)
     def wrapper(*args, db_session_maker, **kwargs):
         db = db_session_maker()
         result = func(*args, **kwargs, db=db)
@@ -120,13 +144,18 @@ def make_db_session(func):
 
 
 @catch_exceptions
+@observe_metrics('start')
 def start(bot, update):
     update.message.reply_text('Команда /new настроит новый канал. В канал будут пересылаться посты из группы ВК')
 
 
 @catch_exceptions
+@observe_metrics('new')
 def new(bot, update):
+    metrics.telegram_conversations_total.labels(type='new', status='started').inc()
+
     update.message.reply_text('Отправьте ссылку на группу ВК')
+
     return ASKED_VK_GROUP_LINK_IN_NEW
 
 
@@ -142,12 +171,14 @@ def new_in_state_asked_vk_group_link(bot, update, users_state):
     keyboard = [['Я сделал']]
     update.message.reply_text('2. Добавьте этого бота (@vk_channelify_bot) в администраторы канала',
                               reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+
     return ASKED_CHANNEL_ACCESS_IN_NEW
 
 
 @catch_exceptions
 def new_in_state_asked_channel_access(bot, update):
     update.message.reply_text('Хорошо. Перешлите любое сообщение из канала', reply_markup=ReplyKeyboardRemove())
+
     return ASKED_CHANNEL_MESSAGE_IN_NEW
 
 
@@ -163,13 +194,15 @@ def new_in_state_asked_channel_message(bot, update, db, users_state):
         channel = Channel(channel_id=channel_id, vk_group_id=vk_group_id, owner_id=user_id, owner_username=username)
         db.add(channel)
         db.commit()
-    except:
+        metrics.telegram_conversations_total.labels(type='new', status='completed').inc()
+    except Exception:
         db.rollback()
+        metrics.telegram_conversations_total.labels(type='new', status='failed').inc()
         raise
 
     try:
         db.query(DisabledChannel).filter(DisabledChannel.channel_id == channel_id).delete()
-    except:
+    except Exception:
         logger.warning('Cannot delete disabled channel of {}'.format(channel_id))
         traceback.print_exc()
 
@@ -181,22 +214,29 @@ def new_in_state_asked_channel_message(bot, update, db, users_state):
     update.message.reply_text('Команда /new настроит новый канал')
 
     del_state(update, users_state)
+
     return ConversationHandler.END
 
 
 @catch_exceptions
 def cancel_new(bot, update, users_state):
+    metrics.telegram_conversations_total.labels(type='new', status='cancelled').inc()
+
     update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
     update.message.reply_text('Команда /new настроит новый канал')
 
     del_state(update, users_state)
+
     return ConversationHandler.END
 
 
 @catch_exceptions
 @make_db_session
+@observe_metrics('filter_by_hashtag')
 def filter_by_hashtag(bot, update, db, users_state):
     user_id = update.message.from_user.id
+
+    metrics.telegram_conversations_total.labels(type='filter_by_hashtag', status='started').inc()
 
     users_state[user_id] = dict()
     users_state[user_id]['channels'] = dict()
@@ -217,6 +257,7 @@ def filter_by_hashtag(bot, update, db, users_state):
         keyboard.append(keyboard_row)
 
     update.message.reply_text('Выберите канал', reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+
     return ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG
 
 
@@ -233,6 +274,7 @@ def filter_by_hashtag_in_state_asked_channel_id(bot, update, db, users_state):
         update.message.reply_text('Текущий фильтр по хештегам:')
         update.message.reply_text(channel.hashtag_filter)
     update.message.reply_text('Напишите новые хештеги (разделяйте запятой):')
+
     return ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG
 
 
@@ -245,30 +287,38 @@ def filter_by_hashtag_in_state_asked_hashtags(bot, update, db, users_state):
     try:
         channel.hashtag_filter = ','.join(h.strip() for h in update.message.text.split(','))
         db.commit()
+        metrics.telegram_conversations_total.labels(type='filter_by_hashtag', status='completed').inc()
     except:
         db.rollback()
+        metrics.telegram_conversations_total.labels(type='filter_by_hashtag', status='failed').inc()
         raise
 
     update.message.reply_text('Сохранено!')
 
     del_state(update, users_state)
+
     return ConversationHandler.END
 
 
 @catch_exceptions
 def cancel_filter_by_hashtag(bot, update, users_state):
+    metrics.telegram_conversations_total.labels(type='filter_by_hashtag', status='cancelled').inc()
     update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
     update.message.reply_text('Настроить фильтр по хештегам можно командой /filter_by_hashtag')
     update.message.reply_text('Команда /new настроит новый канал')
 
     del_state(update, users_state)
+
     return ConversationHandler.END
 
 
 @catch_exceptions
 @make_db_session
+@observe_metrics('recover')
 def recover(bot, update, db, users_state):
     user_id = update.message.from_user.id
+
+    metrics.telegram_conversations_total.labels(type='recover', status='started').inc()
 
     users_state[user_id] = dict()
     users_state[user_id]['channels'] = dict()
@@ -287,9 +337,11 @@ def recover(bot, update, db, users_state):
     if len(keyboard) == 0:
         update.message.reply_text('Нет каналов, которые можно восстановить')
         del_state(update, users_state)
+
         return ConversationHandler.END
     else:
         update.message.reply_text('Выберите канал', reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+
         return ASKED_CHANNEL_ID_IN_RECOVER
 
 
@@ -310,8 +362,10 @@ def recover_in_state_asked_channel_id(bot, update, db, users_state):
                        hashtag_filter=disabled_channel.hashtag_filter))
         db.delete(disabled_channel)
         db.commit()
+        metrics.telegram_conversations_total.labels(type='recover', status='completed').inc()
     except:
         db.rollback()
+        metrics.telegram_conversations_total.labels(type='recover', status='failed').inc()
         raise
 
     update.message.reply_text('Готово!')
@@ -320,13 +374,17 @@ def recover_in_state_asked_channel_id(bot, update, db, users_state):
     update.message.reply_text('Команда /new настроит новый канал')
 
     del_state(update, users_state)
+
     return ConversationHandler.END
 
 
 @catch_exceptions
 def cancel_recover(bot, update, users_state):
+    metrics.telegram_conversations_total.labels(type='recover', status='cancelled').inc()
+
     update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
     update.message.reply_text('Команда /new настроит новый канал')
 
     del_state(update, users_state)
+
     return ConversationHandler.END

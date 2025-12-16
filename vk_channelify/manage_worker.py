@@ -102,9 +102,9 @@ def on_error(update, context):
 
 def catch_exceptions(func):
     @wraps(func)
-    def wrapper(bot, update, *args, **kwargs):
+    def wrapper(update, context, *args, **kwargs):
         try:
-            return func(bot, update, *args, **kwargs)
+            return func(update, context, *args, **kwargs)
         except Exception as e:
             logger.error('Exception in {}: {}'.format(func.__name__, e))
             traceback.print_exc()
@@ -116,11 +116,11 @@ def catch_exceptions(func):
 def observe_metrics(command_name):
     def decorator(func):
         @wraps(func)
-        def wrapper(bot, update, *args, **kwargs):
+        def wrapper(update, context, *args, **kwargs):
             metrics.telegram_commands_total.labels(command=command_name).inc()
             start_time = time.time()
             try:
-                result = func(bot, update, *args, **kwargs)
+                result = func(update, context, *args, **kwargs)
                 duration = time.time() - start_time
                 metrics.telegram_command_duration_seconds.labels(command=command_name).observe(duration)
                 return result
@@ -147,13 +147,13 @@ def make_db_session(func):
 
 @catch_exceptions
 @observe_metrics('start')
-def start(bot, update):
+def start(update, context):
     update.message.reply_text('Команда /new настроит новый канал. В канал будут пересылаться посты из группы ВК')
 
 
 @catch_exceptions
 @observe_metrics('new')
-def new(bot, update):
+def new(update, context):
     metrics.telegram_conversations_total.labels(type='new', status='started').inc()
 
     update.message.reply_text('Отправьте ссылку на группу ВК')
@@ -162,7 +162,7 @@ def new(bot, update):
 
 
 @catch_exceptions
-def new_in_state_asked_vk_group_link(bot, update, users_state):
+def new_in_state_asked_vk_group_link(update, context, users_state):
     vk_url = update.message.text
     vk_domain = vk_url.split('/')[-1]
     users_state[update.message.from_user.id] = dict()
@@ -178,7 +178,7 @@ def new_in_state_asked_vk_group_link(bot, update, users_state):
 
 
 @catch_exceptions
-def new_in_state_asked_channel_access(bot, update):
+def new_in_state_asked_channel_access(update, context):
     update.message.reply_text('Хорошо. Перешлите любое сообщение из канала', reply_markup=ReplyKeyboardRemove())
 
     return ASKED_CHANNEL_MESSAGE_IN_NEW
@@ -186,7 +186,7 @@ def new_in_state_asked_channel_access(bot, update):
 
 @catch_exceptions
 @make_db_session
-def new_in_state_asked_channel_message(bot, update, db, users_state):
+def new_in_state_asked_channel_message(update, context, db, users_state):
     user_id = update.message.from_user.id
     username = update.message.from_user.username
     channel_id = str(update.message.forward_from_chat.id)
@@ -208,7 +208,7 @@ def new_in_state_asked_channel_message(bot, update, db, users_state):
         logger.warning('Cannot delete disabled channel of {}'.format(channel_id))
         traceback.print_exc()
 
-    bot.send_message(channel_id, 'Канал работает с помощью @vk_channelify_bot')
+    context.bot.send_message(channel_id, 'Канал работает с помощью @vk_channelify_bot')
 
     update.message.reply_text('Готово!')
     update.message.reply_text('Бот будет проверять группу каждые 15 минут')
@@ -221,7 +221,7 @@ def new_in_state_asked_channel_message(bot, update, db, users_state):
 
 
 @catch_exceptions
-def cancel_new(bot, update, users_state):
+def cancel_new(update, context, users_state):
     metrics.telegram_conversations_total.labels(type='new', status='cancelled').inc()
 
     update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
@@ -235,7 +235,7 @@ def cancel_new(bot, update, users_state):
 @catch_exceptions
 @make_db_session
 @observe_metrics('filter_by_hashtag')
-def filter_by_hashtag(bot, update, db, users_state):
+def filter_by_hashtag(update, context, db, users_state):
     user_id = update.message.from_user.id
 
     metrics.telegram_conversations_total.labels(type='filter_by_hashtag', status='started').inc()
@@ -246,7 +246,7 @@ def filter_by_hashtag(bot, update, db, users_state):
     keyboard_row = []
     for channel in db.query(Channel).filter(Channel.owner_id == str(user_id)).order_by(Channel.created_at.desc()):
         try:
-            channel_chat = bot.get_chat(chat_id=channel.channel_id)
+            channel_chat = context.bot.get_chat(chat_id=channel.channel_id)
             users_state[user_id]['channels'][channel_chat.title] = channel.channel_id
             keyboard_row.append(channel_chat.title)
             if len(keyboard_row) == 2:
@@ -265,7 +265,7 @@ def filter_by_hashtag(bot, update, db, users_state):
 
 @catch_exceptions
 @make_db_session
-def filter_by_hashtag_in_state_asked_channel_id(bot, update, db, users_state):
+def filter_by_hashtag_in_state_asked_channel_id(update, context, db, users_state):
     user_id = update.message.from_user.id
     channel_title = update.message.text
     channel_id = str(users_state[user_id]['channels'][channel_title])
@@ -282,7 +282,7 @@ def filter_by_hashtag_in_state_asked_channel_id(bot, update, db, users_state):
 
 @catch_exceptions
 @make_db_session
-def filter_by_hashtag_in_state_asked_hashtags(bot, update, db, users_state):
+def filter_by_hashtag_in_state_asked_hashtags(update, context, db, users_state):
     user_id = update.message.from_user.id
     channel = users_state[user_id]['channel']
 
@@ -303,8 +303,9 @@ def filter_by_hashtag_in_state_asked_hashtags(bot, update, db, users_state):
 
 
 @catch_exceptions
-def cancel_filter_by_hashtag(bot, update, users_state):
+def cancel_filter_by_hashtag(update, context, users_state):
     metrics.telegram_conversations_total.labels(type='filter_by_hashtag', status='cancelled').inc()
+
     update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
     update.message.reply_text('Настроить фильтр по хештегам можно командой /filter_by_hashtag')
     update.message.reply_text('Команда /new настроит новый канал')
@@ -317,7 +318,7 @@ def cancel_filter_by_hashtag(bot, update, users_state):
 @catch_exceptions
 @make_db_session
 @observe_metrics('recover')
-def recover(bot, update, db, users_state):
+def recover(update, context, db, users_state):
     user_id = update.message.from_user.id
 
     metrics.telegram_conversations_total.labels(type='recover', status='started').inc()
@@ -349,7 +350,7 @@ def recover(bot, update, db, users_state):
 
 @catch_exceptions
 @make_db_session
-def recover_in_state_asked_channel_id(bot, update, db, users_state):
+def recover_in_state_asked_channel_id(update, context, db, users_state):
     user_id = update.message.from_user.id
     channel_title = update.message.text
     channel_id = str(users_state[user_id]['channels'][channel_title])
@@ -381,7 +382,7 @@ def recover_in_state_asked_channel_id(bot, update, db, users_state):
 
 
 @catch_exceptions
-def cancel_recover(bot, update, users_state):
+def cancel_recover(update, context, users_state):
     metrics.telegram_conversations_total.labels(type='recover', status='cancelled').inc()
 
     update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())

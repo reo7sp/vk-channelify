@@ -1,58 +1,67 @@
 import traceback
 import time
+from collections.abc import Callable
 from functools import partial, wraps
+from typing import Any
 
 import logging
 import telegram
-from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import CommandHandler, Updater, ConversationHandler, Filters, MessageHandler, RegexHandler
+from telegram import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session, sessionmaker
+from telegram.ext import Application, CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 
-from . import models, metrics
+from . import metrics
 from .models import Channel, DisabledChannel
 
 logger = logging.getLogger(__name__)
 
 ASKED_VK_GROUP_LINK_IN_NEW, ASKED_CHANNEL_ACCESS_IN_NEW, ASKED_CHANNEL_MESSAGE_IN_NEW, \
 ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG, ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG, \
-ASKED_CHANNEL_ID_IN_RECOVER = list(range(6))
+ASKED_CHANNEL_ID_IN_RECOVER = range(6)
 
 
-def run_worker(telegram_token, db_session_maker, use_webhook, webhook_domain='', webhook_port=''):
-    users_state = dict()
+def run_worker(
+    telegram_token: str,
+    db_session_maker: sessionmaker[Session],
+    use_webhook: bool,
+    webhook_domain: str = '',
+    webhook_port: int | str = '',
+) -> None:
+    users_state: dict[int, dict[str, Any]] = {}
 
-    updater = Updater(telegram_token)
+    application = Application.builder().token(telegram_token).build()
 
-    dp = updater.dispatcher
-    dp.add_error_handler(on_error)
-    dp.add_handler(CommandHandler('start', start))
-    dp.add_handler(ConversationHandler(
+    application.add_error_handler(on_error)
+    application.add_handler(CommandHandler('start', start))
+    application.add_handler(ConversationHandler(
         entry_points=[CommandHandler('new', new)],
         states={
             ASKED_VK_GROUP_LINK_IN_NEW: [
-                RegexHandler('^https://vk.ru/', partial(new_in_state_asked_vk_group_link,
-                                                         users_state=users_state))
+                MessageHandler(filters.Regex('^https://vk.ru/'), partial(new_in_state_asked_vk_group_link,
+                                                                         users_state=users_state))
             ],
             ASKED_CHANNEL_ACCESS_IN_NEW: [
-                RegexHandler('^Я сделал$', new_in_state_asked_channel_access)
+                MessageHandler(filters.Regex('^Я сделал$'), new_in_state_asked_channel_access)
             ],
             ASKED_CHANNEL_MESSAGE_IN_NEW: [
-                MessageHandler(Filters.forwarded, partial(new_in_state_asked_channel_message,
+                MessageHandler(filters.FORWARDED, partial(new_in_state_asked_channel_message,
                                                           db_session_maker=db_session_maker, users_state=users_state))
             ]
         },
         allow_reentry=True,
         fallbacks=[CommandHandler('cancel', partial(cancel_new, users_state=users_state))]
     ))
-    dp.add_handler(ConversationHandler(
+    application.add_handler(ConversationHandler(
         entry_points=[CommandHandler('filter_by_hashtag', partial(filter_by_hashtag,
                                                                   db_session_maker=db_session_maker, users_state=users_state))],
         states={
             ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG: [
-                MessageHandler(Filters.text, partial(filter_by_hashtag_in_state_asked_channel_id,
+                MessageHandler(filters.TEXT, partial(filter_by_hashtag_in_state_asked_channel_id,
                                                      db_session_maker=db_session_maker, users_state=users_state))
             ],
             ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG: [
-                MessageHandler(Filters.text, partial(filter_by_hashtag_in_state_asked_hashtags,
+                MessageHandler(filters.TEXT, partial(filter_by_hashtag_in_state_asked_hashtags,
                                                      db_session_maker=db_session_maker, users_state=users_state))
             ]
         },
@@ -60,12 +69,12 @@ def run_worker(telegram_token, db_session_maker, use_webhook, webhook_domain='',
         fallbacks=[CommandHandler('cancel', partial(cancel_filter_by_hashtag,
                                                     users_state=users_state))]
     ))
-    dp.add_handler(ConversationHandler(
+    application.add_handler(ConversationHandler(
         entry_points=[CommandHandler('recover', partial(recover,
                                                         db_session_maker=db_session_maker, users_state=users_state))],
         states={
             ASKED_CHANNEL_ID_IN_RECOVER: [
-                MessageHandler(Filters.text, partial(recover_in_state_asked_channel_id,
+                MessageHandler(filters.TEXT, partial(recover_in_state_asked_channel_id,
                                                      db_session_maker=db_session_maker, users_state=users_state))
             ]
         },
@@ -76,37 +85,47 @@ def run_worker(telegram_token, db_session_maker, use_webhook, webhook_domain='',
 
     if use_webhook:
         logger.info('Starting webhook at {}:{}'.format(webhook_domain, webhook_port))
-        updater.start_webhook('0.0.0.0', webhook_port, telegram_token)
-        updater.bot.set_webhook('https://{}/{}'.format(webhook_domain, telegram_token))
+        application.run_webhook(
+            listen='0.0.0.0', port=webhook_port, url_path=telegram_token,
+            webhook_url='https://{}/{}'.format(webhook_domain, telegram_token)
+        )
     else:
         logger.info('Starting long poll')
-        updater.start_polling()
-
-    return updater
+        application.run_polling()
 
 
-def del_state(update, users_state):
+def del_state(update: Update, users_state: dict[int, dict[str, Any]]) -> None:
     if update.message.from_user.id in users_state:
         del users_state[update.message.from_user.id]
 
 
-def on_error(update, context):
+def get_forwarded_chat_id(message: Message) -> int:
+    origin = message.forward_origin
+    if isinstance(origin, telegram.MessageOriginChannel):
+        return origin.chat.id
+    if isinstance(origin, telegram.MessageOriginChat):
+        return origin.sender_chat.id
+    raise ValueError('The message was not forwarded from a chat or channel')
+
+
+async def on_error(update: object | None, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error('Update "{}" caused error "{}"'.format(update, context.error))
     metrics.telegram_api_requests_total.labels(
         method='get_updates', status='error', channel_id='', vk_group_id=''
     ).inc()
 
-    if update is not None and hasattr(update, 'message') and update.message is not None:
-        update.message.reply_text('Внутренняя ошибка')
-        update.message.reply_text('{}: {}'.format(type(context.error).__name__, str(context.error)))
-        update.message.reply_text('Сообщите @olezhes')
+    if isinstance(update, telegram.Update) and update.effective_message is not None:
+        await update.effective_message.reply_text('Внутренняя ошибка')
+        await update.effective_message.reply_text('Сообщите @olezhes')
 
 
-def catch_exceptions(func):
+def catch_exceptions(func: Callable) -> Callable:
     @wraps(func)
-    def wrapper(update, context, *args, **kwargs):
+    async def wrapper(
+        update: Update, context: ContextTypes.DEFAULT_TYPE, *args: Any, **kwargs: Any
+    ) -> Any:
         try:
-            return func(update, context, *args, **kwargs)
+            return await func(update, context, *args, **kwargs)
         except Exception as e:
             logger.error('Exception in {}: {}'.format(func.__name__, e))
             traceback.print_exc()
@@ -115,83 +134,96 @@ def catch_exceptions(func):
     return wrapper
 
 
-def observe_metrics(command_name):
-    def decorator(func):
+def observe_metrics(command_name: str) -> Callable:
+    def decorator(func: Callable) -> Callable:
         @wraps(func)
-        def wrapper(update, context, *args, **kwargs):
+        async def wrapper(
+            update: Update, context: ContextTypes.DEFAULT_TYPE, *args: Any, **kwargs: Any
+        ) -> Any:
             metrics.telegram_commands_total.labels(command=command_name).inc()
             start_time = time.time()
             try:
-                result = func(update, context, *args, **kwargs)
+                result = await func(update, context, *args, **kwargs)
                 duration = time.time() - start_time
                 metrics.telegram_command_duration_seconds.labels(command=command_name).observe(duration)
                 return result
             except Exception as e:
                 duration = time.time() - start_time
                 metrics.telegram_command_duration_seconds.labels(command=command_name).observe(duration)
-                raise e
+                raise
 
         return wrapper
 
     return decorator
 
 
-def make_db_session(func):
+def make_db_session(func: Callable) -> Callable:
     @wraps(func)
-    def wrapper(*args, db_session_maker, **kwargs):
+    async def wrapper(
+        *args: Any, db_session_maker: sessionmaker[Session], **kwargs: Any
+    ) -> Any:
         db = db_session_maker()
-        result = func(*args, **kwargs, db=db)
-        db.close()
-        return result
+        try:
+            return await func(*args, **kwargs, db=db)
+        finally:
+            db.close()
 
     return wrapper
 
 
 @catch_exceptions
 @observe_metrics('start')
-def start(update, context):
-    update.message.reply_text('Команда /new настроит новый канал. В канал будут пересылаться посты из группы ВК')
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text('Команда /new настроит новый канал. В канал будут пересылаться посты из группы ВК')
 
 
 @catch_exceptions
 @observe_metrics('new')
-def new(update, context):
+async def new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     metrics.telegram_conversations_total.labels(type='new', status='started').inc()
 
-    update.message.reply_text('Отправьте ссылку на группу ВК')
+    await update.message.reply_text('Отправьте ссылку на группу ВК')
 
     return ASKED_VK_GROUP_LINK_IN_NEW
 
 
 @catch_exceptions
-def new_in_state_asked_vk_group_link(update, context, users_state):
+async def new_in_state_asked_vk_group_link(
+    update: Update, context: ContextTypes.DEFAULT_TYPE,
+    users_state: dict[int, dict[str, Any]],
+) -> int:
     vk_url = update.message.text
     vk_domain = vk_url.split('/')[-1]
     users_state[update.message.from_user.id] = dict()
     users_state[update.message.from_user.id]['vk_domain'] = vk_domain
 
-    update.message.reply_text('Отлично! Теперь:')
-    update.message.reply_text('1. Создайте новый канал. Можно использовать существующий')
+    await update.message.reply_text('Отлично! Теперь:')
+    await update.message.reply_text('1. Создайте новый канал. Можно использовать существующий')
     keyboard = [['Я сделал']]
-    update.message.reply_text('2. Добавьте этого бота (@vk_channelify_bot) в администраторы канала',
-                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+    await update.message.reply_text('2. Добавьте этого бота (@vk_channelify_bot) в администраторы канала',
+                                    reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
 
     return ASKED_CHANNEL_ACCESS_IN_NEW
 
 
 @catch_exceptions
-def new_in_state_asked_channel_access(update, context):
-    update.message.reply_text('Хорошо. Перешлите любое сообщение из канала', reply_markup=ReplyKeyboardRemove())
+async def new_in_state_asked_channel_access(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    await update.message.reply_text('Хорошо. Перешлите любое сообщение из канала', reply_markup=ReplyKeyboardRemove())
 
     return ASKED_CHANNEL_MESSAGE_IN_NEW
 
 
 @catch_exceptions
 @make_db_session
-def new_in_state_asked_channel_message(update, context, db, users_state):
+async def new_in_state_asked_channel_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, db: Session,
+    users_state: dict[int, dict[str, Any]],
+) -> int:
     user_id = update.message.from_user.id
     username = update.message.from_user.username
-    channel_id = str(update.message.forward_from_chat.id)
+    channel_id = str(get_forwarded_chat_id(update.message))
     vk_group_id = users_state[user_id]['vk_domain']
 
     try:
@@ -205,17 +237,18 @@ def new_in_state_asked_channel_message(update, context, db, users_state):
         raise
 
     try:
-        db.query(DisabledChannel).filter(DisabledChannel.channel_id == channel_id).delete()
+        db.execute(delete(DisabledChannel).where(DisabledChannel.channel_id == channel_id))
+        db.commit()
     except Exception:
         logger.warning('Cannot delete disabled channel of {}'.format(channel_id))
         traceback.print_exc()
 
-    context.bot.send_message(channel_id, 'Канал работает с помощью @vk_channelify_bot')
+    await context.bot.send_message(channel_id, 'Канал работает с помощью @vk_channelify_bot')
 
-    update.message.reply_text('Готово!')
-    update.message.reply_text('Бот будет проверять группу каждые 15 минут')
-    update.message.reply_text('Настроить фильтр по хештегам можно командой /filter_by_hashtag')
-    update.message.reply_text('Команда /new настроит новый канал')
+    await update.message.reply_text('Готово!')
+    await update.message.reply_text('Бот будет проверять группу каждые 15 минут')
+    await update.message.reply_text('Настроить фильтр по хештегам можно командой /filter_by_hashtag')
+    await update.message.reply_text('Команда /new настроит новый канал')
 
     del_state(update, users_state)
 
@@ -223,11 +256,14 @@ def new_in_state_asked_channel_message(update, context, db, users_state):
 
 
 @catch_exceptions
-def cancel_new(update, context, users_state):
+async def cancel_new(
+    update: Update, context: ContextTypes.DEFAULT_TYPE,
+    users_state: dict[int, dict[str, Any]],
+) -> int:
     metrics.telegram_conversations_total.labels(type='new', status='cancelled').inc()
 
-    update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
-    update.message.reply_text('Команда /new настроит новый канал')
+    await update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text('Команда /new настроит новый канал')
 
     del_state(update, users_state)
 
@@ -237,56 +273,72 @@ def cancel_new(update, context, users_state):
 @catch_exceptions
 @make_db_session
 @observe_metrics('filter_by_hashtag')
-def filter_by_hashtag(update, context, db, users_state):
+async def filter_by_hashtag(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, db: Session,
+    users_state: dict[int, dict[str, Any]],
+) -> int:
     user_id = update.message.from_user.id
 
     metrics.telegram_conversations_total.labels(type='filter_by_hashtag', status='started').inc()
 
     users_state[user_id] = dict()
     users_state[user_id]['channels'] = dict()
-    keyboard = []
-    keyboard_row = []
-    for channel in db.query(Channel).filter(Channel.owner_id == str(user_id)).order_by(Channel.created_at.desc()):
+    keyboard: list[list[str]] = []
+    keyboard_row: list[str] = []
+    channels = db.scalars(
+        select(Channel).where(Channel.owner_id == str(user_id)).order_by(Channel.created_at.desc())
+    )
+    for channel in channels:
         try:
-            channel_chat = context.bot.get_chat(chat_id=channel.channel_id)
+            channel_chat = await context.bot.get_chat(chat_id=channel.channel_id)
             users_state[user_id]['channels'][channel_chat.title] = channel.channel_id
             keyboard_row.append(channel_chat.title)
             if len(keyboard_row) == 2:
                 keyboard.append(keyboard_row)
                 keyboard_row = []
-        except telegram.TelegramError:
+        except telegram.error.TelegramError:
             logger.warning('filter_by_hashtag: cannot get title of channel {}'.format(channel.channel_id))
             traceback.print_exc()
     if len(keyboard_row) != 0:
         keyboard.append(keyboard_row)
 
-    update.message.reply_text('Выберите канал', reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+    await update.message.reply_text('Выберите канал', reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
 
     return ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG
 
 
 @catch_exceptions
 @make_db_session
-def filter_by_hashtag_in_state_asked_channel_id(update, context, db, users_state):
+async def filter_by_hashtag_in_state_asked_channel_id(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, db: Session,
+    users_state: dict[int, dict[str, Any]],
+) -> int:
     user_id = update.message.from_user.id
     channel_title = update.message.text
     channel_id = str(users_state[user_id]['channels'][channel_title])
-    channel = db.query(Channel).get(channel_id)
-    users_state[user_id]['channel'] = channel
+    channel = db.get(Channel, channel_id)
+    if channel is None:
+        raise ValueError('Channel {} does not exist'.format(channel_id))
+    users_state[user_id]['channel_id'] = channel_id
 
     if channel.hashtag_filter is not None:
-        update.message.reply_text('Текущий фильтр по хештегам:')
-        update.message.reply_text(channel.hashtag_filter)
-    update.message.reply_text('Напишите новые хештеги (разделяйте запятой):')
+        await update.message.reply_text('Текущий фильтр по хештегам:')
+        await update.message.reply_text(channel.hashtag_filter)
+    await update.message.reply_text('Напишите новые хештеги (разделяйте запятой):')
 
     return ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG
 
 
 @catch_exceptions
 @make_db_session
-def filter_by_hashtag_in_state_asked_hashtags(update, context, db, users_state):
+async def filter_by_hashtag_in_state_asked_hashtags(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, db: Session,
+    users_state: dict[int, dict[str, Any]],
+) -> int:
     user_id = update.message.from_user.id
-    channel = users_state[user_id]['channel']
+    channel = db.get(Channel, users_state[user_id]['channel_id'])
+    if channel is None:
+        raise ValueError('Channel does not exist')
 
     try:
         channel.hashtag_filter = ','.join(h.strip() for h in update.message.text.split(','))
@@ -297,7 +349,7 @@ def filter_by_hashtag_in_state_asked_hashtags(update, context, db, users_state):
         metrics.telegram_conversations_total.labels(type='filter_by_hashtag', status='failed').inc()
         raise
 
-    update.message.reply_text('Сохранено!')
+    await update.message.reply_text('Сохранено!')
 
     del_state(update, users_state)
 
@@ -305,12 +357,15 @@ def filter_by_hashtag_in_state_asked_hashtags(update, context, db, users_state):
 
 
 @catch_exceptions
-def cancel_filter_by_hashtag(update, context, users_state):
+async def cancel_filter_by_hashtag(
+    update: Update, context: ContextTypes.DEFAULT_TYPE,
+    users_state: dict[int, dict[str, Any]],
+) -> int:
     metrics.telegram_conversations_total.labels(type='filter_by_hashtag', status='cancelled').inc()
 
-    update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
-    update.message.reply_text('Настроить фильтр по хештегам можно командой /filter_by_hashtag')
-    update.message.reply_text('Команда /new настроит новый канал')
+    await update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text('Настроить фильтр по хештегам можно командой /filter_by_hashtag')
+    await update.message.reply_text('Команда /new настроит новый канал')
 
     del_state(update, users_state)
 
@@ -320,16 +375,24 @@ def cancel_filter_by_hashtag(update, context, users_state):
 @catch_exceptions
 @make_db_session
 @observe_metrics('recover')
-def recover(update, context, db, users_state):
+async def recover(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, db: Session,
+    users_state: dict[int, dict[str, Any]],
+) -> int:
     user_id = update.message.from_user.id
 
     metrics.telegram_conversations_total.labels(type='recover', status='started').inc()
 
     users_state[user_id] = dict()
     users_state[user_id]['channels'] = dict()
-    keyboard = []
-    keyboard_row = []
-    for channel in db.query(DisabledChannel).filter(DisabledChannel.owner_id == str(user_id)).order_by(DisabledChannel.created_at.desc()):
+    keyboard: list[list[str]] = []
+    keyboard_row: list[str] = []
+    channels = db.scalars(
+        select(DisabledChannel)
+        .where(DisabledChannel.owner_id == str(user_id))
+        .order_by(DisabledChannel.created_at.desc())
+    )
+    for channel in channels:
         title = '{} ({})'.format(channel.vk_group_id, channel.channel_id)
         users_state[user_id]['channels'][title] = channel.channel_id
         keyboard_row.append(title)
@@ -340,23 +403,28 @@ def recover(update, context, db, users_state):
         keyboard.append(keyboard_row)
 
     if len(keyboard) == 0:
-        update.message.reply_text('Нет каналов, которые можно восстановить')
+        await update.message.reply_text('Нет каналов, которые можно восстановить')
         del_state(update, users_state)
 
         return ConversationHandler.END
     else:
-        update.message.reply_text('Выберите канал', reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+        await update.message.reply_text('Выберите канал', reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
 
         return ASKED_CHANNEL_ID_IN_RECOVER
 
 
 @catch_exceptions
 @make_db_session
-def recover_in_state_asked_channel_id(update, context, db, users_state):
+async def recover_in_state_asked_channel_id(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, db: Session,
+    users_state: dict[int, dict[str, Any]],
+) -> int:
     user_id = update.message.from_user.id
     channel_title = update.message.text
     channel_id = str(users_state[user_id]['channels'][channel_title])
-    disabled_channel = db.query(DisabledChannel).filter(DisabledChannel.channel_id == channel_id).one()
+    disabled_channel = db.scalars(
+        select(DisabledChannel).where(DisabledChannel.channel_id == channel_id)
+    ).one()
 
     try:
         db.add(Channel(channel_id=disabled_channel.channel_id,
@@ -373,10 +441,10 @@ def recover_in_state_asked_channel_id(update, context, db, users_state):
         metrics.telegram_conversations_total.labels(type='recover', status='failed').inc()
         raise
 
-    update.message.reply_text('Готово!')
-    update.message.reply_text('Бот будет проверять группу каждые 15 минут')
-    update.message.reply_text('Настроить фильтр по хештегам можно командой /filter_by_hashtag')
-    update.message.reply_text('Команда /new настроит новый канал')
+    await update.message.reply_text('Готово!')
+    await update.message.reply_text('Бот будет проверять группу каждые 15 минут')
+    await update.message.reply_text('Настроить фильтр по хештегам можно командой /filter_by_hashtag')
+    await update.message.reply_text('Команда /new настроит новый канал')
 
     del_state(update, users_state)
 
@@ -384,11 +452,14 @@ def recover_in_state_asked_channel_id(update, context, db, users_state):
 
 
 @catch_exceptions
-def cancel_recover(update, context, users_state):
+async def cancel_recover(
+    update: Update, context: ContextTypes.DEFAULT_TYPE,
+    users_state: dict[int, dict[str, Any]],
+) -> int:
     metrics.telegram_conversations_total.labels(type='recover', status='cancelled').inc()
 
-    update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
-    update.message.reply_text('Команда /new настроит новый канал')
+    await update.message.reply_text('Ладно', reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text('Команда /new настроит новый канал')
 
     del_state(update, users_state)
 

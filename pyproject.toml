@@ -3,22 +3,20 @@ name = "vk-channelify"
 version = "1.0.0"
 description = "VK to Telegram channel reposter"
 readme = "README.md"
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.14,<3.15"
 dependencies = [
-    "SQLAlchemy==1.4.54",
-    "alembic==1.13.3",
-    "psycopg2-binary==2.9.11",
-    "requests==2.31.0",
-    "python-telegram-bot==13.15",
-    "prometheus-client==0.21.1",
-    # APScheduler 3.6.3 imports pkg_resources, removed from newer setuptools.
-    "setuptools>=68,<81",
+    "SQLAlchemy==2.0.52",
+    "alembic==1.19.1",
+    "psycopg2-binary==2.9.12",
+    "requests==2.34.2",
+    "python-telegram-bot[webhooks]==22.8",
+    "prometheus-client==0.26.0",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest==8.3.4",
-    "pytest-mock==3.14.0",
+    "pytest==9.1.1",
+    "pytest-mock==3.15.1",
     "pyhamcrest==2.1.0",
 ]
 

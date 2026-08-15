@@ -1,0 +1,59 @@
+services:
+  db:
+    image: postgres:10
+    environment:
+      POSTGRES_DB: vk_channelify
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vk_channelify"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  migrate:
+    build:
+      context: .
+      target: runtime
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/vk_channelify
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  tests:
+    build:
+      context: .
+      target: test
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/vk_channelify
+      TEST_DATABASE_URL: postgresql://postgres:postgres@db:5432/vk_channelify
+    command: ["pytest", "--color=yes"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    profiles: ["test"]
+
+  app:
+    build:
+      context: .
+      target: runtime
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/vk_channelify
+      TELEGRAM_TOKEN: "${TELEGRAM_TOKEN:-}"
+      VK_TOKEN: "${VK_TOKEN:-}"
+      METRICS_PORT: "9090"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${METRICS_PORT:-9090}:9090"
+    profiles: ["app"]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

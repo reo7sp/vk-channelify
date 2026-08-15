@@ -1,3 +1,5 @@
+COMPOSE_BUILD ?= --build
+
 .PHONY: install format lint run test test-integration migrate docker-migrate docker-run docker-stop
 
 install:
@@ -10,7 +12,7 @@ test: install
 	poetry run pytest
 
 test-integration:
-	docker compose --profile test up --build --abort-on-container-exit --exit-code-from tests tests
+	docker compose --profile test up $(COMPOSE_BUILD) --abort-on-container-exit --exit-code-from tests tests
 
 migrate: install
 	PYTHONPATH=. poetry run alembic upgrade head

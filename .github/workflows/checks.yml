@@ -50,4 +50,4 @@ jobs:
             tests.cache-to=type=gha,scope=tests,mode=max
 
       - name: Run integration tests
-        run: docker compose --profile test up --no-build --abort-on-container-exit --exit-code-from tests tests
+        run: make test-integration COMPOSE_BUILD=--no-build

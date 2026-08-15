@@ -30,9 +30,9 @@ def main() -> None:
 
     try:
         start_http_server(metrics_port)
-        logger.info('metrics server started', port=metrics_port)
+        logger.info('Metrics server started', port=metrics_port)
     except Exception:
-        logger.warning('failed to start metrics server', port=metrics_port, exc_info=True)
+        logger.warning('Failed to start metrics server', port=metrics_port, exc_info=True)
 
     db_session_maker = models.make_session_maker(db_url)
     run_repost_worker(vk_thread_delay, vk_token, telegram_token, db_session_maker)

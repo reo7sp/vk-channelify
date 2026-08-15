@@ -43,7 +43,7 @@ def run_worker_inside_thread(
     while True:
         db = None
         start_time = time.monotonic()
-        logger.info('repost iteration started')
+        logger.info('Repost iteration started')
         metrics.repost_iterations_total.inc()
 
         try:
@@ -51,17 +51,17 @@ def run_worker_inside_thread(
             with metrics.repost_iteration_duration_seconds.time():
                 asyncio.run(run_worker_iteration(vk_service_code, telegram_token, db))
         except Exception:
-            logger.exception('repost iteration failed')
+            logger.exception('Repost iteration failed')
             metrics.repost_errors_total.labels(error_type='iteration_failed', channel_id='', vk_group_id='').inc()
         finally:
             if db is not None:
                 try:
                     db.close()
                 except Exception:
-                    logger.exception('failed to close database session')
+                    logger.exception('Failed to close database session')
 
         logger.info(
-            'repost iteration finished',
+            'Repost iteration finished',
             duration_seconds=round(time.monotonic() - start_time, 3),
         )
 
@@ -123,7 +123,7 @@ async def run_worker_iteration_with_bot(vk_service_code: str, bot: telegram.Bot,
 
             if posts_sent:
                 logger.info(
-                    'posts sent',
+                    'Posts sent',
                     count=posts_sent,
                     channel_id=channel.channel_id,
                     vk_group_id=channel.vk_group_id,
@@ -132,7 +132,7 @@ async def run_worker_iteration_with_bot(vk_service_code: str, bot: telegram.Bot,
         except telegram.error.BadRequest as e:
             if 'chat not found' in e.message.lower():
                 logger.warning(
-                    'telegram chat not found',
+                    'Telegram chat not found',
                     error=str(e),
                     **metrics_kwargs,
                 )
@@ -144,7 +144,7 @@ async def run_worker_iteration_with_bot(vk_service_code: str, bot: telegram.Bot,
 
         except telegram.error.Forbidden as e:
             logger.warning(
-                'telegram channel forbidden',
+                'Telegram channel forbidden',
                 error=str(e),
                 **metrics_kwargs,
             )
@@ -152,7 +152,7 @@ async def run_worker_iteration_with_bot(vk_service_code: str, bot: telegram.Bot,
             await disable_channel(channel, db, bot)
 
         except telegram.error.TimedOut as e:
-            logger.warning('telegram request timed out', error=str(e), **metrics_kwargs)
+            logger.warning('Telegram request timed out', error=str(e), **metrics_kwargs)
             metrics.repost_errors_total.labels(error_type='telegram_timeout', **metrics_kwargs).inc()
 
         except requests.Timeout as e:
@@ -240,7 +240,7 @@ async def disable_channel(channel: Channel, db: Session, bot: telegram.Bot) -> N
         'vk_group_id': channel.vk_group_id,
     }
 
-    logger.warning('disabling channel', **metrics_kwargs)
+    logger.warning('Disabling channel', **metrics_kwargs)
     metrics.channels_disabled_total.labels(**metrics_kwargs).inc()
 
     try:
@@ -267,7 +267,7 @@ async def disable_channel(channel: Channel, db: Session, bot: telegram.Bot) -> N
         await bot.send_message(channel.owner_id, 'Чтобы восстановить канал, вызовите команду /recover')
     except telegram.error.TelegramError:
         logger.warning(
-            'failed to notify channel owner',
+            'Failed to notify channel owner',
             owner_id=channel.owner_id,
             owner_username=channel.owner_username,
             exc_info=True,

@@ -123,7 +123,7 @@ def run_worker(
     )
 
     if use_webhook:
-        logger.info('starting webhook', domain=webhook_domain, port=webhook_port)
+        logger.info('Starting webhook', domain=webhook_domain, port=webhook_port)
         application.run_webhook(
             listen='0.0.0.0',
             port=webhook_port,
@@ -131,7 +131,7 @@ def run_worker(
             webhook_url=f'https://{webhook_domain}/{telegram_token}',
         )
     else:
-        logger.info('starting long poll')
+        logger.info('Starting long poll')
         application.run_polling()
 
 
@@ -151,7 +151,7 @@ def get_forwarded_chat_id(message: Message) -> int:
 
 async def on_error(update: object | None, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error(
-        'telegram update failed',
+        'Telegram update failed',
         error=str(context.error),
         update=repr(update),
     )
@@ -170,7 +170,7 @@ def catch_exceptions(func: Callable) -> Callable:
         try:
             return await func(update, context, *args, **kwargs)
         except Exception:
-            logger.exception('telegram handler failed', handler=func.__name__)
+            logger.exception('Telegram handler failed', handler=func.__name__)
             raise
 
     return wrapper
@@ -282,7 +282,7 @@ async def new_in_state_asked_channel_message(
         db.commit()
     except Exception:
         logger.warning(
-            'failed to delete disabled channel',
+            'Failed to delete disabled channel',
             channel_id=channel_id,
             exc_info=True,
         )
@@ -343,7 +343,7 @@ async def filter_by_hashtag(
                 keyboard_row = []
         except telegram.error.TelegramError:
             logger.warning(
-                'failed to get channel title',
+                'Failed to get channel title',
                 channel_id=channel.channel_id,
                 exc_info=True,
             )

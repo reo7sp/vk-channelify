@@ -35,14 +35,26 @@ def test_main_starts_metrics_and_workers(
     session_maker = Mock()
     mock_make_session_maker.return_value = session_maker
 
-    with patch.dict(os.environ, env, clear=True):
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch('app.configure_logging') as mock_configure_logging,
+        patch('app.logger'),
+    ):
         app.main()
 
+    mock_configure_logging.assert_called_once_with('telegram-token', 'vk-token')
     mock_start_http_server.assert_called_once_with(9091)
     mock_make_session_maker.assert_called_once_with('postgresql://database')
     mock_run_repost_worker.assert_called_once_with(
-        60, 'vk-token', 'telegram-token', session_maker,
+        60,
+        'vk-token',
+        'telegram-token',
+        session_maker,
     )
     mock_run_manage_worker.assert_called_once_with(
-        'telegram-token', session_maker, True, 'bot.example.com', 8443,
+        'telegram-token',
+        session_maker,
+        True,
+        'bot.example.com',
+        8443,
     )

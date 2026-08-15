@@ -1,37 +1,37 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 import telegram
-from unittest.mock import AsyncMock, Mock, patch
 from hamcrest import assert_that, equal_to, is_
+from telegram.ext import ConversationHandler
 
 from vk_channelify.manage_worker import (
-    run_worker,
-    on_error,
-    start,
-    new,
-    new_in_state_asked_vk_group_link,
-    new_in_state_asked_channel_access,
-    new_in_state_asked_channel_message,
+    ASKED_CHANNEL_ACCESS_IN_NEW,
+    ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG,
+    ASKED_CHANNEL_ID_IN_RECOVER,
+    ASKED_CHANNEL_MESSAGE_IN_NEW,
+    ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG,
+    ASKED_VK_GROUP_LINK_IN_NEW,
+    cancel_filter_by_hashtag,
     cancel_new,
+    cancel_recover,
     del_state,
-    get_forwarded_chat_id,
     filter_by_hashtag,
     filter_by_hashtag_in_state_asked_channel_id,
     filter_by_hashtag_in_state_asked_hashtags,
-    cancel_filter_by_hashtag,
+    get_forwarded_chat_id,
+    new,
+    new_in_state_asked_channel_access,
+    new_in_state_asked_channel_message,
+    new_in_state_asked_vk_group_link,
+    on_error,
     recover,
     recover_in_state_asked_channel_id,
-    cancel_recover,
-    ASKED_VK_GROUP_LINK_IN_NEW,
-    ASKED_CHANNEL_ACCESS_IN_NEW,
-    ASKED_CHANNEL_MESSAGE_IN_NEW,
-    ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG,
-    ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG,
-    ASKED_CHANNEL_ID_IN_RECOVER,
+    run_worker,
+    start,
 )
-from telegram.ext import ConversationHandler
 
 
 def make_forward_origin(origin_type: str) -> telegram.MessageOrigin:
@@ -41,10 +41,13 @@ def make_forward_origin(origin_type: str) -> telegram.MessageOrigin:
     )
     if origin_type == 'channel':
         return telegram.MessageOriginChannel(
-            date=datetime.now(timezone.utc), chat=chat, message_id=1,
+            date=datetime.now(UTC),
+            chat=chat,
+            message_id=1,
         )
     return telegram.MessageOriginChat(
-        date=datetime.now(timezone.utc), sender_chat=chat,
+        date=datetime.now(UTC),
+        sender_chat=chat,
     )
 
 
@@ -85,10 +88,12 @@ class TestGetForwardedChatId:
         assert_that(get_forwarded_chat_id(message), equal_to(-100123456))
 
     def test_rejects_user_origin(self) -> None:
-        message = Mock(forward_origin=telegram.MessageOriginUser(
-            date=datetime.now(timezone.utc),
-            sender_user=telegram.User(id=1, first_name='Test', is_bot=False),
-        ))
+        message = Mock(
+            forward_origin=telegram.MessageOriginUser(
+                date=datetime.now(UTC),
+                sender_user=telegram.User(id=1, first_name='Test', is_bot=False),
+            )
+        )
 
         with pytest.raises(ValueError):
             get_forwarded_chat_id(message)
@@ -206,7 +211,7 @@ class TestNewInStateAskedChannelMessage:
         update.message.from_user.id = 12345
         update.message.from_user.username = 'testuser'
         update.message.forward_origin = telegram.MessageOriginChannel(
-            date=datetime.now(timezone.utc),
+            date=datetime.now(UTC),
             chat=telegram.Chat(id=-100123456, type=telegram.constants.ChatType.CHANNEL),
             message_id=1,
         )
@@ -216,9 +221,11 @@ class TestNewInStateAskedChannelMessage:
         db = Mock()
         db_session_maker = Mock(return_value=db)
 
-        result = asyncio.run(new_in_state_asked_channel_message(
-            update, context, db_session_maker=db_session_maker, users_state=users_state
-        ))
+        result = asyncio.run(
+            new_in_state_asked_channel_message(
+                update, context, db_session_maker=db_session_maker, users_state=users_state
+            )
+        )
 
         assert_that(result, equal_to(ConversationHandler.END))
         db.add.assert_called_once()
@@ -227,28 +234,28 @@ class TestNewInStateAskedChannelMessage:
 
     @patch('vk_channelify.manage_worker.metrics')
     @patch('vk_channelify.manage_worker.Channel')
-    def test_rolls_back_on_error(
-        self, mock_channel: Mock, mock_metrics: Mock
-    ) -> None:
+    def test_rolls_back_on_error(self, mock_channel: Mock, mock_metrics: Mock) -> None:
         update = Mock()
         context = Mock()
         update.message.from_user.id = 12345
         update.message.from_user.username = 'testuser'
         update.message.forward_origin = telegram.MessageOriginChannel(
-            date=datetime.now(timezone.utc),
+            date=datetime.now(UTC),
             chat=telegram.Chat(id=-100123456, type=telegram.constants.ChatType.CHANNEL),
             message_id=1,
         )
         update.message.reply_text = AsyncMock()
         users_state = {12345: {'vk_domain': 'mygroup'}}
         db = Mock()
-        db.commit.side_effect = Exception('DB Error')
+        db.commit.side_effect = RuntimeError('DB Error')
         db_session_maker = Mock(return_value=db)
 
-        with pytest.raises(Exception):
-            asyncio.run(new_in_state_asked_channel_message(
-                update, context, db_session_maker=db_session_maker, users_state=users_state
-            ))
+        with pytest.raises(RuntimeError):
+            asyncio.run(
+                new_in_state_asked_channel_message(
+                    update, context, db_session_maker=db_session_maker, users_state=users_state
+                )
+            )
 
         db.rollback.assert_called_once()
         mock_metrics.telegram_conversations_total.labels.assert_called_with(type='new', status='failed')
@@ -282,12 +289,14 @@ class TestFilterByHashtag:
         db.scalars.return_value = [channel]
         users_state = {}
 
-        result = asyncio.run(filter_by_hashtag(
-            update,
-            context,
-            db_session_maker=Mock(return_value=db),
-            users_state=users_state,
-        ))
+        result = asyncio.run(
+            filter_by_hashtag(
+                update,
+                context,
+                db_session_maker=Mock(return_value=db),
+                users_state=users_state,
+            )
+        )
 
         assert_that(result, equal_to(ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG))
         assert_that(users_state[12345]['channels']['Test channel'], equal_to('-1001'))
@@ -301,12 +310,14 @@ class TestFilterByHashtag:
         db.get.return_value = None
 
         with pytest.raises(ValueError, match='does not exist'):
-            asyncio.run(filter_by_hashtag_in_state_asked_channel_id(
-                update,
-                Mock(),
-                db_session_maker=Mock(return_value=db),
-                users_state={12345: {'channels': {'Missing channel': '-1001'}}},
-            ))
+            asyncio.run(
+                filter_by_hashtag_in_state_asked_channel_id(
+                    update,
+                    Mock(),
+                    db_session_maker=Mock(return_value=db),
+                    users_state={12345: {'channels': {'Missing channel': '-1001'}}},
+                )
+            )
 
         db.close.assert_called_once_with()
 
@@ -321,12 +332,14 @@ class TestFilterByHashtag:
         db.get.return_value = channel
         users_state = {12345: {'channels': {'Test channel': '-1001'}}}
 
-        result = asyncio.run(filter_by_hashtag_in_state_asked_channel_id(
-            update,
-            context,
-            db_session_maker=Mock(return_value=db),
-            users_state=users_state,
-        ))
+        result = asyncio.run(
+            filter_by_hashtag_in_state_asked_channel_id(
+                update,
+                context,
+                db_session_maker=Mock(return_value=db),
+                users_state=users_state,
+            )
+        )
 
         assert_that(result, equal_to(ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG))
         assert_that(users_state[12345]['channel_id'], equal_to('-1001'))
@@ -345,12 +358,14 @@ class TestFilterByHashtag:
         db.get.return_value = channel
         users_state = {12345: {'channel_id': '-1001'}}
 
-        result = asyncio.run(filter_by_hashtag_in_state_asked_hashtags(
-            update,
-            context,
-            db_session_maker=Mock(return_value=db),
-            users_state=users_state,
-        ))
+        result = asyncio.run(
+            filter_by_hashtag_in_state_asked_hashtags(
+                update,
+                context,
+                db_session_maker=Mock(return_value=db),
+                users_state=users_state,
+            )
+        )
 
         assert_that(result, equal_to(ConversationHandler.END))
         assert_that(channel.hashtag_filter, equal_to('#books,#news'))
@@ -366,15 +381,17 @@ class TestFilterByHashtag:
         context = Mock()
         db = Mock()
         db.get.return_value = Mock()
-        db.commit.side_effect = Exception('DB Error')
+        db.commit.side_effect = RuntimeError('DB Error')
 
-        with pytest.raises(Exception):
-            asyncio.run(filter_by_hashtag_in_state_asked_hashtags(
-                update,
-                context,
-                db_session_maker=Mock(return_value=db),
-                users_state={12345: {'channel_id': '-1001'}},
-            ))
+        with pytest.raises(RuntimeError):
+            asyncio.run(
+                filter_by_hashtag_in_state_asked_hashtags(
+                    update,
+                    context,
+                    db_session_maker=Mock(return_value=db),
+                    users_state={12345: {'channel_id': '-1001'}},
+                )
+            )
 
         db.rollback.assert_called_once_with()
         db.close.assert_called_once_with()
@@ -386,12 +403,14 @@ class TestFilterByHashtag:
         db.get.return_value = None
 
         with pytest.raises(ValueError, match='does not exist'):
-            asyncio.run(filter_by_hashtag_in_state_asked_hashtags(
-                update,
-                Mock(),
-                db_session_maker=Mock(return_value=db),
-                users_state={12345: {'channel_id': '-1001'}},
-            ))
+            asyncio.run(
+                filter_by_hashtag_in_state_asked_hashtags(
+                    update,
+                    Mock(),
+                    db_session_maker=Mock(return_value=db),
+                    users_state={12345: {'channel_id': '-1001'}},
+                )
+            )
 
         db.close.assert_called_once_with()
 
@@ -402,9 +421,13 @@ class TestFilterByHashtag:
         update.message.reply_text = AsyncMock()
         users_state = {12345: {'channel_id': '-1001'}}
 
-        result = asyncio.run(cancel_filter_by_hashtag(
-            update, Mock(), users_state=users_state,
-        ))
+        result = asyncio.run(
+            cancel_filter_by_hashtag(
+                update,
+                Mock(),
+                users_state=users_state,
+            )
+        )
 
         assert_that(result, equal_to(ConversationHandler.END))
         assert_that(12345 not in users_state, is_(True))
@@ -420,12 +443,14 @@ class TestRecover:
         db.scalars.return_value = []
         users_state = {}
 
-        result = asyncio.run(recover(
-            update,
-            Mock(),
-            db_session_maker=Mock(return_value=db),
-            users_state=users_state,
-        ))
+        result = asyncio.run(
+            recover(
+                update,
+                Mock(),
+                db_session_maker=Mock(return_value=db),
+                users_state=users_state,
+            )
+        )
 
         assert_that(result, equal_to(ConversationHandler.END))
         assert_that(12345 not in users_state, is_(True))
@@ -441,12 +466,14 @@ class TestRecover:
         db.scalars.return_value = [disabled_channel]
         users_state = {}
 
-        result = asyncio.run(recover(
-            update,
-            Mock(),
-            db_session_maker=Mock(return_value=db),
-            users_state=users_state,
-        ))
+        result = asyncio.run(
+            recover(
+                update,
+                Mock(),
+                db_session_maker=Mock(return_value=db),
+                users_state=users_state,
+            )
+        )
 
         title = 'books (-1001)'
         assert_that(result, equal_to(ASKED_CHANNEL_ID_IN_RECOVER))
@@ -460,19 +487,25 @@ class TestRecover:
         update.message.text = 'books (-1001)'
         update.message.reply_text = AsyncMock()
         disabled_channel = Mock(
-            channel_id='-1001', vk_group_id='books', last_vk_post_id=42,
-            owner_id='12345', owner_username='test', hashtag_filter='#books',
+            channel_id='-1001',
+            vk_group_id='books',
+            last_vk_post_id=42,
+            owner_id='12345',
+            owner_username='test',
+            hashtag_filter='#books',
         )
         db = Mock()
         db.scalars.return_value.one.return_value = disabled_channel
         users_state = {12345: {'channels': {'books (-1001)': '-1001'}}}
 
-        result = asyncio.run(recover_in_state_asked_channel_id(
-            update,
-            Mock(),
-            db_session_maker=Mock(return_value=db),
-            users_state=users_state,
-        ))
+        result = asyncio.run(
+            recover_in_state_asked_channel_id(
+                update,
+                Mock(),
+                db_session_maker=Mock(return_value=db),
+                users_state=users_state,
+            )
+        )
 
         assert_that(result, equal_to(ConversationHandler.END))
         db.add.assert_called_once()
@@ -487,20 +520,26 @@ class TestRecover:
         update.message.from_user.id = 12345
         update.message.text = 'books (-1001)'
         disabled_channel = Mock(
-            channel_id='-1001', vk_group_id='books', last_vk_post_id=42,
-            owner_id='12345', owner_username='test', hashtag_filter=None,
+            channel_id='-1001',
+            vk_group_id='books',
+            last_vk_post_id=42,
+            owner_id='12345',
+            owner_username='test',
+            hashtag_filter=None,
         )
         db = Mock()
         db.scalars.return_value.one.return_value = disabled_channel
-        db.commit.side_effect = Exception('DB Error')
+        db.commit.side_effect = RuntimeError('DB Error')
 
-        with pytest.raises(Exception):
-            asyncio.run(recover_in_state_asked_channel_id(
-                update,
-                Mock(),
-                db_session_maker=Mock(return_value=db),
-                users_state={12345: {'channels': {'books (-1001)': '-1001'}}},
-            ))
+        with pytest.raises(RuntimeError):
+            asyncio.run(
+                recover_in_state_asked_channel_id(
+                    update,
+                    Mock(),
+                    db_session_maker=Mock(return_value=db),
+                    users_state={12345: {'channels': {'books (-1001)': '-1001'}}},
+                )
+            )
 
         db.rollback.assert_called_once_with()
         db.close.assert_called_once_with()

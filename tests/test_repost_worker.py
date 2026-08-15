@@ -1,17 +1,18 @@
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 import requests
 import telegram
-from hamcrest import assert_that, equal_to, is_, none, has_length
+from hamcrest import assert_that, equal_to, has_length, is_, none
 
 from vk_channelify.repost_worker import (
     VK_API_TIMEOUT_SECONDS,
-    extract_group_id_if_has,
-    is_passing_hashtag_filter,
-    fetch_group_posts,
     disable_channel,
-    run_worker_iteration_with_bot
+    extract_group_id_if_has,
+    fetch_group_posts,
+    is_passing_hashtag_filter,
+    run_worker_iteration_with_bot,
 )
 from vk_channelify.vk_errors import VKError, VKWallAccessDeniedError
 
@@ -19,9 +20,7 @@ from vk_channelify.vk_errors import VKError, VKWallAccessDeniedError
 class TestRunWorkerIteration:
     @patch('vk_channelify.repost_worker.fetch_group_posts')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_iteration_sends_new_posts(
-        self, mock_metrics: Mock, mock_fetch: Mock
-    ) -> None:
+    def test_iteration_sends_new_posts(self, mock_metrics: Mock, mock_fetch: Mock) -> None:
         mock_bot = Mock()
         mock_bot.send_message = AsyncMock()
         mock_channel = Mock(channel_id='-100123456', vk_group_id='testgroup', last_vk_post_id=10, hashtag_filter=None)
@@ -30,7 +29,7 @@ class TestRunWorkerIteration:
         mock_db.scalars.return_value = iter([mock_channel])
         mock_fetch.return_value = [
             {'id': 11, 'owner_id': -123, 'text': 'New post 1'},
-            {'id': 12, 'owner_id': -123, 'text': 'New post 2'}
+            {'id': 12, 'owner_id': -123, 'text': 'New post 2'},
         ]
 
         asyncio.run(run_worker_iteration_with_bot('vk_token', mock_bot, mock_db))
@@ -40,9 +39,7 @@ class TestRunWorkerIteration:
 
     @patch('vk_channelify.repost_worker.fetch_group_posts')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_iteration_skips_old_posts(
-        self, mock_metrics: Mock, mock_fetch: Mock
-    ) -> None:
+    def test_iteration_skips_old_posts(self, mock_metrics: Mock, mock_fetch: Mock) -> None:
         mock_bot = Mock()
         mock_bot.send_message = AsyncMock()
         mock_channel = Mock(channel_id='-100123456', vk_group_id='testgroup', last_vk_post_id=10, hashtag_filter=None)
@@ -75,15 +72,10 @@ class TestRunWorkerIteration:
 
     @patch('vk_channelify.repost_worker.fetch_group_posts')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_iteration_records_vk_timeout_for_channel(
-        self, mock_metrics: Mock, mock_fetch: Mock
-    ) -> None:
+    def test_iteration_records_vk_timeout_for_channel(self, mock_metrics: Mock, mock_fetch: Mock) -> None:
         mock_bot = Mock()
         mock_bot.send_message = AsyncMock()
-        mock_channel = Mock(
-            channel_id='-100123456', vk_group_id='testgroup',
-            last_vk_post_id=10, hashtag_filter=None
-        )
+        mock_channel = Mock(channel_id='-100123456', vk_group_id='testgroup', last_vk_post_id=10, hashtag_filter=None)
         mock_db = Mock()
         mock_db.scalar.side_effect = [1, 0]
         mock_db.scalars.return_value = iter([mock_channel])
@@ -99,12 +91,12 @@ class TestRunWorkerIteration:
 
     @patch('vk_channelify.repost_worker.fetch_group_posts')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_iteration_records_vk_connection_error(
-        self, mock_metrics: Mock, mock_fetch: Mock
-    ) -> None:
+    def test_iteration_records_vk_connection_error(self, mock_metrics: Mock, mock_fetch: Mock) -> None:
         mock_channel = Mock(
-            channel_id='-100123456', vk_group_id='testgroup',
-            last_vk_post_id=10, hashtag_filter=None,
+            channel_id='-100123456',
+            vk_group_id='testgroup',
+            last_vk_post_id=10,
+            hashtag_filter=None,
         )
         mock_db = Mock()
         mock_db.scalar.side_effect = [1, 0]
@@ -122,12 +114,12 @@ class TestRunWorkerIteration:
 
     @patch('vk_channelify.repost_worker.fetch_group_posts')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_iteration_records_generic_vk_request_error(
-        self, mock_metrics: Mock, mock_fetch: Mock
-    ) -> None:
+    def test_iteration_records_generic_vk_request_error(self, mock_metrics: Mock, mock_fetch: Mock) -> None:
         mock_channel = Mock(
-            channel_id='-100123456', vk_group_id='testgroup',
-            last_vk_post_id=10, hashtag_filter=None,
+            channel_id='-100123456',
+            vk_group_id='testgroup',
+            last_vk_post_id=10,
+            hashtag_filter=None,
         )
         mock_db = Mock()
         mock_db.scalar.side_effect = [1, 0]
@@ -145,13 +137,13 @@ class TestRunWorkerIteration:
 
     @patch('vk_channelify.repost_worker.fetch_group_posts')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_iteration_records_telegram_timeout(
-        self, mock_metrics: Mock, mock_fetch: Mock
-    ) -> None:
+    def test_iteration_records_telegram_timeout(self, mock_metrics: Mock, mock_fetch: Mock) -> None:
         mock_bot = Mock(send_message=AsyncMock(side_effect=telegram.error.TimedOut()))
         mock_channel = Mock(
-            channel_id='-100123456', vk_group_id='testgroup',
-            last_vk_post_id=10, hashtag_filter=None,
+            channel_id='-100123456',
+            vk_group_id='testgroup',
+            last_vk_post_id=10,
+            hashtag_filter=None,
         )
         mock_db = Mock()
         mock_db.scalar.side_effect = [1, 0]
@@ -176,8 +168,10 @@ class TestRunWorkerIteration:
             send_message=AsyncMock(side_effect=telegram.error.BadRequest('Chat not found')),
         )
         mock_channel = Mock(
-            channel_id='-100123456', vk_group_id='testgroup',
-            last_vk_post_id=10, hashtag_filter=None,
+            channel_id='-100123456',
+            vk_group_id='testgroup',
+            last_vk_post_id=10,
+            hashtag_filter=None,
         )
         mock_db = Mock()
         mock_db.scalar.side_effect = [1, 0]
@@ -201,8 +195,10 @@ class TestRunWorkerIteration:
     ) -> None:
         mock_bot = Mock()
         mock_channel = Mock(
-            channel_id='-100123456', vk_group_id='testgroup',
-            last_vk_post_id=10, hashtag_filter=None,
+            channel_id='-100123456',
+            vk_group_id='testgroup',
+            last_vk_post_id=10,
+            hashtag_filter=None,
         )
         mock_db = Mock()
         mock_db.scalar.side_effect = [1, 0]
@@ -220,12 +216,12 @@ class TestRunWorkerIteration:
 
     @patch('vk_channelify.repost_worker.fetch_group_posts')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_iteration_reraises_generic_vk_error(
-        self, mock_metrics: Mock, mock_fetch: Mock
-    ) -> None:
+    def test_iteration_reraises_generic_vk_error(self, mock_metrics: Mock, mock_fetch: Mock) -> None:
         mock_channel = Mock(
-            channel_id='-100123456', vk_group_id='testgroup',
-            last_vk_post_id=10, hashtag_filter=None,
+            channel_id='-100123456',
+            vk_group_id='testgroup',
+            last_vk_post_id=10,
+            hashtag_filter=None,
         )
         mock_db = Mock()
         mock_db.scalar.side_effect = [1, 0]
@@ -243,15 +239,15 @@ class TestRunWorkerIteration:
 
     @patch('vk_channelify.repost_worker.fetch_group_posts')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_iteration_reraises_generic_telegram_bad_request(
-        self, mock_metrics: Mock, mock_fetch: Mock
-    ) -> None:
+    def test_iteration_reraises_generic_telegram_bad_request(self, mock_metrics: Mock, mock_fetch: Mock) -> None:
         mock_bot = Mock(
             send_message=AsyncMock(side_effect=telegram.error.BadRequest('Invalid message')),
         )
         mock_channel = Mock(
-            channel_id='-100123456', vk_group_id='testgroup',
-            last_vk_post_id=10, hashtag_filter=None,
+            channel_id='-100123456',
+            vk_group_id='testgroup',
+            last_vk_post_id=10,
+            hashtag_filter=None,
         )
         mock_db = Mock()
         mock_db.scalar.side_effect = [1, 0]
@@ -269,21 +265,21 @@ class TestRunWorkerIteration:
 
     @patch('vk_channelify.repost_worker.fetch_group_posts')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_iteration_rolls_back_post_position_on_commit_error(
-        self, mock_metrics: Mock, mock_fetch: Mock
-    ) -> None:
+    def test_iteration_rolls_back_post_position_on_commit_error(self, mock_metrics: Mock, mock_fetch: Mock) -> None:
         mock_bot = Mock(send_message=AsyncMock())
         mock_channel = Mock(
-            channel_id='-100123456', vk_group_id='testgroup',
-            last_vk_post_id=10, hashtag_filter=None,
+            channel_id='-100123456',
+            vk_group_id='testgroup',
+            last_vk_post_id=10,
+            hashtag_filter=None,
         )
         mock_db = Mock()
         mock_db.scalar.side_effect = [1, 0]
         mock_db.scalars.return_value = iter([mock_channel])
-        mock_db.commit.side_effect = Exception('DB Error')
+        mock_db.commit.side_effect = RuntimeError('DB Error')
         mock_fetch.return_value = [{'id': 11, 'owner_id': -123, 'text': 'Post'}]
 
-        with pytest.raises(Exception, match='DB Error'):
+        with pytest.raises(RuntimeError, match='DB Error'):
             asyncio.run(run_worker_iteration_with_bot('vk_token', mock_bot, mock_db))
 
         mock_db.rollback.assert_called_once_with()
@@ -293,12 +289,8 @@ class TestFetchGroupPosts:
     @patch('vk_channelify.repost_worker.requests.get')
     @patch('vk_channelify.repost_worker.time.sleep')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_fetch_success(
-        self, mock_metrics: Mock, mock_sleep: Mock, mock_get: Mock
-    ) -> None:
-        mock_get.return_value.json.return_value = {
-            'response': {'items': [{'id': 1, 'text': 'Post 1'}]}
-        }
+    def test_fetch_success(self, mock_metrics: Mock, mock_sleep: Mock, mock_get: Mock) -> None:
+        mock_get.return_value.json.return_value = {'response': {'items': [{'id': 1, 'text': 'Post 1'}]}}
 
         posts = fetch_group_posts('mygroup', 'test_token')
 
@@ -313,9 +305,7 @@ class TestFetchGroupPosts:
     @patch('vk_channelify.repost_worker.requests.get')
     @patch('vk_channelify.repost_worker.time.sleep')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_fetch_access_denied_error(
-        self, mock_metrics: Mock, mock_sleep: Mock, mock_get: Mock
-    ) -> None:
+    def test_fetch_access_denied_error(self, mock_metrics: Mock, mock_sleep: Mock, mock_get: Mock) -> None:
         mock_get.return_value.json.return_value = {
             'error': {'error_code': 15, 'error_msg': 'Access denied', 'request_params': []}
         }
@@ -326,9 +316,7 @@ class TestFetchGroupPosts:
     @patch('vk_channelify.repost_worker.requests.get')
     @patch('vk_channelify.repost_worker.time.sleep')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_fetch_timeout_is_recorded(
-        self, mock_metrics: Mock, mock_sleep: Mock, mock_get: Mock
-    ) -> None:
+    def test_fetch_timeout_is_recorded(self, mock_metrics: Mock, mock_sleep: Mock, mock_get: Mock) -> None:
         mock_get.side_effect = requests.Timeout('VK timed out')
 
         with pytest.raises(requests.Timeout):
@@ -342,9 +330,7 @@ class TestFetchGroupPosts:
     @patch('vk_channelify.repost_worker.requests.get')
     @patch('vk_channelify.repost_worker.time.sleep')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_fetch_generic_api_error(
-        self, mock_metrics: Mock, mock_sleep: Mock, mock_get: Mock
-    ) -> None:
+    def test_fetch_generic_api_error(self, mock_metrics: Mock, mock_sleep: Mock, mock_get: Mock) -> None:
         mock_get.return_value.json.return_value = {
             'error': {
                 'error_code': 5,
@@ -357,7 +343,9 @@ class TestFetchGroupPosts:
             fetch_group_posts('mygroup', 'test_token')
 
         mock_metrics.vk_api_requests_total.labels.assert_called_once_with(
-            method='wall.get', status='error', vk_group_id='mygroup',
+            method='wall.get',
+            status='error',
+            vk_group_id='mygroup',
         )
 
 
@@ -403,20 +391,20 @@ class TestDisableChannel:
     def test_disable_channel_rollback_on_error(self, mock_metrics: Mock) -> None:
         mock_channel = Mock(channel_id='-100123456', vk_group_id='testgroup')
         mock_db = Mock()
-        mock_db.commit.side_effect = Exception('DB Error')
+        mock_db.commit.side_effect = RuntimeError('DB Error')
 
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError):
             asyncio.run(disable_channel(mock_channel, mock_db, Mock(send_message=AsyncMock())))
 
         mock_db.rollback.assert_called_once()
 
     @patch('vk_channelify.repost_worker.metrics')
-    def test_disable_channel_ignores_owner_notification_error(
-        self, mock_metrics: Mock
-    ) -> None:
+    def test_disable_channel_ignores_owner_notification_error(self, mock_metrics: Mock) -> None:
         mock_channel = Mock(
-            channel_id='-100123456', vk_group_id='testgroup',
-            owner_id='12345', owner_username='testuser',
+            channel_id='-100123456',
+            vk_group_id='testgroup',
+            owner_id='12345',
+            owner_username='testuser',
         )
         mock_db = Mock()
         mock_bot = Mock(

@@ -14,9 +14,7 @@ class TimeStampMixin:
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
     @staticmethod
-    def _updated_at(
-        mapper: Mapper[Any], connection: Connection, target: 'TimeStampMixin'
-    ) -> None:
+    def _updated_at(mapper: Mapper[Any], connection: Connection, target: TimeStampMixin) -> None:
         target.updated_at = utc_now()
 
     @classmethod

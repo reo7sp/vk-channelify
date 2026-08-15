@@ -1,7 +1,7 @@
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from . import Base
+from vk_channelify.models import Base
 
 
 class DisabledChannel(Base):

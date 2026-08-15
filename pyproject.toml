@@ -11,6 +11,7 @@ dependencies = [
     "requests==2.34.2",
     "python-telegram-bot[webhooks]==22.8",
     "prometheus-client==0.26.0",
+    "structlog (==26.1.0)",
 ]
 
 [dependency-groups]
@@ -18,10 +19,23 @@ dev = [
     "pytest==9.1.1",
     "pytest-mock==3.15.1",
     "pyhamcrest==2.1.0",
+    "ruff (==0.16.3)",
 ]
 
 [tool.poetry]
 package-mode = false
+
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+extend-exclude = ["alembic"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "single"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

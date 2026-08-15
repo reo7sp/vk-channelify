@@ -1,22 +1,20 @@
 import asyncio
-import datetime
 import time
-import traceback
-from typing import Any
 from threading import Thread
+from typing import Any
 
-import logging
 import requests
+import structlog
 import telegram
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from vk_channelify import metrics
+from vk_channelify.models import Channel
 from vk_channelify.models.disabled_channel import DisabledChannel
 from vk_channelify.vk_errors import VKError, VKWallAccessDeniedError
-from .models import Channel
-from . import metrics
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 VK_API_TIMEOUT_SECONDS = 30
 
@@ -27,9 +25,11 @@ def run_worker(
     telegram_token: str,
     db_session_maker: sessionmaker[Session],
 ) -> Thread:
-    thread = Thread(target=run_worker_inside_thread,
-                    args=(iteration_delay, vk_service_code, telegram_token, db_session_maker),
-                    daemon=True)
+    thread = Thread(
+        target=run_worker_inside_thread,
+        args=(iteration_delay, vk_service_code, telegram_token, db_session_maker),
+        daemon=True,
+    )
     thread.start()
     return thread
 
@@ -42,42 +42,38 @@ def run_worker_inside_thread(
 ) -> None:
     while True:
         db = None
-        start_time = datetime.datetime.now()
-        logger.info('New iteration {}'.format(start_time))
+        start_time = time.monotonic()
+        logger.info('repost iteration started')
         metrics.repost_iterations_total.inc()
 
         try:
             db = db_session_maker()
             with metrics.repost_iteration_duration_seconds.time():
                 asyncio.run(run_worker_iteration(vk_service_code, telegram_token, db))
-        except Exception as e:
-            logger.error('Iteration was failed because of {}'.format(e))
-            traceback.print_exc()
+        except Exception:
+            logger.exception('repost iteration failed')
             metrics.repost_errors_total.labels(error_type='iteration_failed', channel_id='', vk_group_id='').inc()
         finally:
             if db is not None:
                 try:
                     db.close()
-                except Exception as e:
-                    logger.error('Iteration has failed db.close() because of {}'.format(e))
-                    traceback.print_exc()
+                except Exception:
+                    logger.exception('failed to close database session')
 
-        end_time = datetime.datetime.now()
-        logger.info('Finished iteration {} ({})'.format(end_time, end_time - start_time))
+        logger.info(
+            'repost iteration finished',
+            duration_seconds=round(time.monotonic() - start_time, 3),
+        )
 
         time.sleep(iteration_delay)
 
 
-async def run_worker_iteration(
-    vk_service_code: str, telegram_token: str, db: Session
-) -> None:
+async def run_worker_iteration(vk_service_code: str, telegram_token: str, db: Session) -> None:
     async with telegram.Bot(telegram_token) as bot:
         await run_worker_iteration_with_bot(vk_service_code, bot, db)
 
 
-async def run_worker_iteration_with_bot(
-    vk_service_code: str, bot: telegram.Bot, db: Session
-) -> None:
+async def run_worker_iteration_with_bot(vk_service_code: str, bot: telegram.Bot, db: Session) -> None:
     active_count = db.scalar(select(func.count()).select_from(Channel))
     disabled_count = db.scalar(select(func.count()).select_from(DisabledChannel))
 
@@ -86,7 +82,6 @@ async def run_worker_iteration_with_bot(
 
     for channel in db.scalars(select(Channel)):
         try:
-            log_id = '{} (id: {})'.format(channel.vk_group_id, channel.channel_id)
             metrics_kwargs = {
                 'channel_id': channel.channel_id,
                 'vk_group_id': channel.vk_group_id,
@@ -108,11 +103,15 @@ async def run_worker_iteration_with_bot(
 
                 try:
                     await bot.send_message(channel.channel_id, text)
-                    metrics.telegram_api_requests_total.labels(method='send_message', status='success', **metrics_kwargs).inc()
+                    metrics.telegram_api_requests_total.labels(
+                        method='send_message', status='success', **metrics_kwargs
+                    ).inc()
                     posts_sent += 1
                     metrics.repost_posts_sent_total.labels(**metrics_kwargs).inc()
                 except telegram.error.TelegramError as send_error:
-                    metrics.telegram_api_requests_total.labels(method='send_message', status='error', **metrics_kwargs).inc()
+                    metrics.telegram_api_requests_total.labels(
+                        method='send_message', status='error', **metrics_kwargs
+                    ).inc()
                     raise send_error
 
                 try:
@@ -123,12 +122,20 @@ async def run_worker_iteration_with_bot(
                     raise
 
             if posts_sent:
-                logger.info('Success sent {} posts on channel {}'.format(posts_sent, log_id))
+                logger.info(
+                    'posts sent',
+                    count=posts_sent,
+                    channel_id=channel.channel_id,
+                    vk_group_id=channel.vk_group_id,
+                )
 
         except telegram.error.BadRequest as e:
             if 'chat not found' in e.message.lower():
-                logger.warning('Disabling channel {} because of telegram error: {}'.format(log_id, e))
-                traceback.print_exc()
+                logger.warning(
+                    'telegram chat not found',
+                    error=str(e),
+                    **metrics_kwargs,
+                )
                 metrics.repost_errors_total.labels(error_type='telegram_chat_not_found', **metrics_kwargs).inc()
                 await disable_channel(channel, db, bot)
             else:
@@ -136,38 +143,40 @@ async def run_worker_iteration_with_bot(
                 raise e
 
         except telegram.error.Forbidden as e:
-            logger.warning('Disabling channel {} because of telegram error: {}'.format(log_id, e))
-            traceback.print_exc()
+            logger.warning(
+                'telegram channel forbidden',
+                error=str(e),
+                **metrics_kwargs,
+            )
             metrics.repost_errors_total.labels(error_type='telegram_unauthorized', **metrics_kwargs).inc()
             await disable_channel(channel, db, bot)
 
         except telegram.error.TimedOut as e:
-            logger.warning('Got telegram TimedOut error on channel {}'.format(log_id))
+            logger.warning('telegram request timed out', error=str(e), **metrics_kwargs)
             metrics.repost_errors_total.labels(error_type='telegram_timeout', **metrics_kwargs).inc()
 
         except requests.Timeout as e:
-            logger.warning('Got VK timeout on channel {}: {}'.format(log_id, e))
+            logger.warning('VK request timed out', error=str(e), **metrics_kwargs)
             metrics.repost_errors_total.labels(error_type='vk_timeout', **metrics_kwargs).inc()
             raise
 
         except requests.ConnectionError as e:
-            logger.warning('Got VK connection error on channel {}: {}'.format(log_id, e))
+            logger.warning('VK connection failed', error=str(e), **metrics_kwargs)
             metrics.repost_errors_total.labels(error_type='vk_connection_error', **metrics_kwargs).inc()
             raise
 
         except requests.RequestException as e:
-            logger.warning('Got VK request error on channel {}: {}'.format(log_id, e))
+            logger.warning('VK request failed', error=str(e), **metrics_kwargs)
             metrics.repost_errors_total.labels(error_type='vk_request_error', **metrics_kwargs).inc()
             raise
 
         except VKWallAccessDeniedError as e:
-            logger.warning('Disabling channel {} because of vk error: {}'.format(log_id, e))
-            traceback.print_exc()
+            logger.warning('VK wall unavailable', error=str(e), **metrics_kwargs)
             metrics.repost_errors_total.labels(error_type='vk_wall_access_denied', **metrics_kwargs).inc()
             await disable_channel(channel, db, bot)
 
         except VKError as e:
-            logger.warning('Got VK API error on channel {}: {}'.format(log_id, e))
+            logger.warning('VK API error', error=str(e), **metrics_kwargs)
             metrics.repost_errors_total.labels(error_type='vk_api_error', **metrics_kwargs).inc()
             raise
 
@@ -179,9 +188,9 @@ def fetch_group_posts(group: str, vk_service_code: str) -> list[dict[str, Any]]:
     is_group_domain_passed = group_id is None
 
     if is_group_domain_passed:
-        url = 'https://api.vk.ru/method/wall.get?domain={}&count=10&access_token={}&v=5.131'.format(group, vk_service_code)
+        url = f'https://api.vk.ru/method/wall.get?domain={group}&count=10&access_token={vk_service_code}&v=5.131'
     else:
-        url = 'https://api.vk.ru/method/wall.get?owner_id=-{}&count=10&access_token={}&v=5.131'.format(group_id, vk_service_code)
+        url = f'https://api.vk.ru/method/wall.get?owner_id=-{group_id}&count=10&access_token={vk_service_code}&v=5.131'
 
     try:
         r = requests.get(url, timeout=VK_API_TIMEOUT_SECONDS)
@@ -193,7 +202,7 @@ def fetch_group_posts(group: str, vk_service_code: str) -> list[dict[str, Any]]:
     j = r.json()
 
     if 'response' not in j:
-        logger.error('VK responded with {}'.format(j))
+        logger.error('VK API returned an error', response=j, vk_group_id=group)
         metrics.vk_api_requests_total.labels(method='wall.get', status='error', vk_group_id=group).inc()
 
         error_code = int(j['error']['error_code'])
@@ -211,16 +220,14 @@ def extract_group_id_if_has(group_name: str) -> str | None:
     domainless_group_prefixes = ['club', 'public']
     for prefix in domainless_group_prefixes:
         if group_name.startswith(prefix):
-            group_id = group_name[len(prefix):]
+            group_id = group_name[len(prefix) :]
             if group_id.isdigit():
                 return group_id
 
     return None
 
 
-def is_passing_hashtag_filter(
-    hashtag_filter: str | None, post: dict[str, Any]
-) -> bool:
+def is_passing_hashtag_filter(hashtag_filter: str | None, post: dict[str, Any]) -> bool:
     if hashtag_filter is None:
         return True
 
@@ -228,22 +235,25 @@ def is_passing_hashtag_filter(
 
 
 async def disable_channel(channel: Channel, db: Session, bot: telegram.Bot) -> None:
-    log_id = '{} (id: {})'.format(channel.vk_group_id, channel.channel_id)
     metrics_kwargs = {
         'channel_id': channel.channel_id,
         'vk_group_id': channel.vk_group_id,
     }
 
-    logger.warning('Disabling channel {}'.format(log_id))
+    logger.warning('disabling channel', **metrics_kwargs)
     metrics.channels_disabled_total.labels(**metrics_kwargs).inc()
 
     try:
-        db.add(DisabledChannel(channel_id=channel.channel_id,
-                               vk_group_id=channel.vk_group_id,
-                               last_vk_post_id=channel.last_vk_post_id,
-                               owner_id=channel.owner_id,
-                               owner_username=channel.owner_username,
-                               hashtag_filter=channel.hashtag_filter))
+        db.add(
+            DisabledChannel(
+                channel_id=channel.channel_id,
+                vk_group_id=channel.vk_group_id,
+                last_vk_post_id=channel.last_vk_post_id,
+                owner_id=channel.owner_id,
+                owner_username=channel.owner_username,
+                hashtag_filter=channel.hashtag_filter,
+            )
+        )
         db.delete(channel)
         db.commit()
     except:
@@ -251,10 +261,15 @@ async def disable_channel(channel: Channel, db: Session, bot: telegram.Bot) -> N
         raise
 
     try:
-        await bot.send_message(channel.owner_id, 'Канал https://vk.ru/{} отключен'.format(channel.vk_group_id))
+        await bot.send_message(channel.owner_id, f'Канал https://vk.ru/{channel.vk_group_id} отключен')
         await bot.send_message(channel.owner_id, 'Так как не удается отправить в него сообщение')
-        await bot.send_message(channel.owner_id, 'ID канала {}'.format(channel.channel_id))
+        await bot.send_message(channel.owner_id, f'ID канала {channel.channel_id}')
         await bot.send_message(channel.owner_id, 'Чтобы восстановить канал, вызовите команду /recover')
     except telegram.error.TelegramError:
-        logger.warning('Cannot send recover message to {} (id: {})'.format(channel.owner_username, channel.owner_id))
-        traceback.print_exc()
+        logger.warning(
+            'failed to notify channel owner',
+            owner_id=channel.owner_id,
+            owner_username=channel.owner_username,
+            exc_info=True,
+            **metrics_kwargs,
+        )

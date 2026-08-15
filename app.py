@@ -1,16 +1,18 @@
 import os
 
-import logging
+import structlog
 from prometheus_client import start_http_server
 
 from vk_channelify import models, run_manage_worker, run_repost_worker
-from vk_channelify.logging_utils import RedactSecretsFilter
+from vk_channelify.logging_utils import configure_logging
+
+logger = structlog.get_logger(__name__)
 
 
 def required_env(name: str) -> str:
     value = os.getenv(name)
     if value is None:
-        raise RuntimeError('{} is not configured'.format(name))
+        raise RuntimeError(f'{name} is not configured')
     return value
 
 
@@ -24,17 +26,13 @@ def main() -> None:
     vk_thread_delay = int(os.getenv('REPOST_DELAY', 15 * 60))  # 15 minutes
     metrics_port = int(os.getenv('METRICS_PORT', 9090))
 
-    logging.basicConfig(level=logging.INFO)
-    secrets_filter = RedactSecretsFilter(telegram_token, vk_token)
-    for handler in logging.getLogger().handlers:
-        handler.addFilter(secrets_filter)
-    logger = logging.getLogger(__name__)
+    configure_logging(telegram_token, vk_token)
 
     try:
         start_http_server(metrics_port)
-        logger.info('Prometheus metrics server started on port {}'.format(metrics_port))
-    except Exception as e:
-        logger.warning('Failed to start Prometheus metrics server: {}'.format(e))
+        logger.info('metrics server started', port=metrics_port)
+    except Exception:
+        logger.warning('failed to start metrics server', port=metrics_port, exc_info=True)
 
     db_session_maker = models.make_session_maker(db_url)
     run_repost_worker(vk_thread_delay, vk_token, telegram_token, db_session_maker)

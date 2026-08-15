@@ -1,4 +1,4 @@
-.PHONY: install run test test-integration migrate docker-migrate docker-run docker-stop
+.PHONY: install format lint run test test-integration migrate docker-migrate docker-run docker-stop
 
 install:
 	poetry install
@@ -23,3 +23,11 @@ docker-run:
 
 docker-stop:
 	docker compose --profile app --profile test down --remove-orphans
+
+format: install
+	poetry run ruff check --fix .
+	poetry run ruff format .
+
+lint: install
+	poetry run ruff check .
+	poetry run ruff format --check .

@@ -14,6 +14,8 @@ from . import metrics
 
 logger = logging.getLogger(__name__)
 
+VK_API_TIMEOUT_SECONDS = 30
+
 
 def run_worker(iteration_delay, vk_service_code, telegram_token, db_session_maker):
     thread = Thread(target=run_worker_inside_thread,
@@ -116,11 +118,31 @@ def run_worker_iteration(vk_service_code, telegram_token, db):
             logger.warning('Got telegram TimedOut error on channel {}'.format(log_id))
             metrics.repost_errors_total.labels(error_type='telegram_timeout', **metrics_kwargs).inc()
 
+        except requests.Timeout as e:
+            logger.warning('Got VK timeout on channel {}: {}'.format(log_id, e))
+            metrics.repost_errors_total.labels(error_type='vk_timeout', **metrics_kwargs).inc()
+            raise
+
+        except requests.ConnectionError as e:
+            logger.warning('Got VK connection error on channel {}: {}'.format(log_id, e))
+            metrics.repost_errors_total.labels(error_type='vk_connection_error', **metrics_kwargs).inc()
+            raise
+
+        except requests.RequestException as e:
+            logger.warning('Got VK request error on channel {}: {}'.format(log_id, e))
+            metrics.repost_errors_total.labels(error_type='vk_request_error', **metrics_kwargs).inc()
+            raise
+
         except VkWallAccessDeniedError as e:
             logger.warning('Disabling channel {} because of vk error: {}'.format(log_id, e))
             traceback.print_exc()
             metrics.repost_errors_total.labels(error_type='vk_wall_access_denied', **metrics_kwargs).inc()
             disable_channel(channel, db, bot)
+
+        except VkError as e:
+            logger.warning('Got VK API error on channel {}: {}'.format(log_id, e))
+            metrics.repost_errors_total.labels(error_type='vk_api_error', **metrics_kwargs).inc()
+            raise
 
 
 def fetch_group_posts(group, vk_service_code):
@@ -131,10 +153,16 @@ def fetch_group_posts(group, vk_service_code):
 
     if is_group_domain_passed:
         url = 'https://api.vk.ru/method/wall.get?domain={}&count=10&access_token={}&v=5.131'.format(group, vk_service_code)
-        r = requests.get(url)
     else:
         url = 'https://api.vk.ru/method/wall.get?owner_id=-{}&count=10&access_token={}&v=5.131'.format(group_id, vk_service_code)
-        r = requests.get(url)
+
+    try:
+        r = requests.get(url, timeout=VK_API_TIMEOUT_SECONDS)
+        r.raise_for_status()
+    except requests.RequestException:
+        metrics.vk_api_requests_total.labels(method='wall.get', status='error', vk_group_id=group).inc()
+        raise
+
     j = r.json()
 
     if 'response' not in j:

@@ -92,7 +92,9 @@ def del_state(update, users_state):
 
 def on_error(update, context):
     logger.error('Update "{}" caused error "{}"'.format(update, context.error))
-    traceback.print_exc()
+    metrics.telegram_api_requests_total.labels(
+        method='get_updates', status='error', channel_id='', vk_group_id=''
+    ).inc()
 
     if update is not None and hasattr(update, 'message') and update.message is not None:
         update.message.reply_text('Внутренняя ошибка')

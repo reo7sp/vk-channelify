@@ -1,9 +1,11 @@
 import pytest
 from unittest.mock import Mock, patch
+import requests
 import telegram
 from hamcrest import assert_that, equal_to, is_, none, has_length
 
 from vk_channelify.repost_worker import (
+    VK_API_TIMEOUT_SECONDS,
     extract_group_id_if_has,
     is_passing_hashtag_filter,
     fetch_group_posts,
@@ -68,6 +70,27 @@ class TestRunWorkerIteration:
 
         mock_disable.assert_called_once_with(mock_channel, mock_db, mock_bot)
 
+    @patch('vk_channelify.repost_worker.telegram.Bot')
+    @patch('vk_channelify.repost_worker.fetch_group_posts')
+    @patch('vk_channelify.repost_worker.metrics')
+    def test_iteration_records_vk_timeout_for_channel(self, mock_metrics, mock_fetch, mock_bot_class):
+        mock_channel = Mock(
+            channel_id='-100123456', vk_group_id='testgroup',
+            last_vk_post_id=10, hashtag_filter=None
+        )
+        mock_db = Mock()
+        mock_db.query.return_value.count.return_value = 1
+        mock_db.query.return_value.__iter__ = Mock(return_value=iter([mock_channel]))
+        mock_fetch.side_effect = requests.Timeout('VK timed out')
+
+        with pytest.raises(requests.Timeout):
+            run_worker_iteration('vk_token', 'tg_token', mock_db)
+
+        mock_metrics.repost_errors_total.labels.assert_called_once_with(
+            error_type='vk_timeout', channel_id='-100123456', vk_group_id='testgroup'
+        )
+        mock_metrics.repost_errors_total.labels.return_value.inc.assert_called_once_with()
+
 
 class TestFetchGroupPosts:
     @patch('vk_channelify.repost_worker.requests.get')
@@ -82,6 +105,11 @@ class TestFetchGroupPosts:
 
         assert_that(posts, has_length(1))
         assert_that(posts[0]['id'], equal_to(1))
+        mock_get.assert_called_once()
+        assert_that(mock_get.call_args.kwargs['timeout'], equal_to(VK_API_TIMEOUT_SECONDS))
+        mock_metrics.vk_api_requests_total.labels.assert_called_once_with(
+            method='wall.get', status='success', vk_group_id='mygroup'
+        )
 
     @patch('vk_channelify.repost_worker.requests.get')
     @patch('vk_channelify.repost_worker.time.sleep')
@@ -93,6 +121,20 @@ class TestFetchGroupPosts:
 
         with pytest.raises(VkWallAccessDeniedError):
             fetch_group_posts('mygroup', 'test_token')
+
+    @patch('vk_channelify.repost_worker.requests.get')
+    @patch('vk_channelify.repost_worker.time.sleep')
+    @patch('vk_channelify.repost_worker.metrics')
+    def test_fetch_timeout_is_recorded(self, mock_metrics, mock_sleep, mock_get):
+        mock_get.side_effect = requests.Timeout('VK timed out')
+
+        with pytest.raises(requests.Timeout):
+            fetch_group_posts('mygroup', 'test_token')
+
+        mock_metrics.vk_api_requests_total.labels.assert_called_once_with(
+            method='wall.get', status='error', vk_group_id='mygroup'
+        )
+        mock_metrics.vk_api_requests_total.labels.return_value.inc.assert_called_once_with()
 
 
 class TestExtractGroupIdIfHas:

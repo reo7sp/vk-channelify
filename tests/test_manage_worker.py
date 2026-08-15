@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 from hamcrest import assert_that, equal_to, is_
 
 from vk_channelify.manage_worker import (
+    on_error,
     start,
     new,
     new_in_state_asked_vk_group_link,
@@ -35,6 +36,19 @@ class TestDelState:
         del_state(update, users_state)
 
         assert_that(12345 not in users_state, is_(True))
+
+
+class TestOnError:
+    @patch('vk_channelify.manage_worker.metrics')
+    def test_records_polling_error(self, mock_metrics):
+        context = Mock(error=Exception('Network is unreachable'))
+
+        on_error(None, context)
+
+        mock_metrics.telegram_api_requests_total.labels.assert_called_once_with(
+            method='get_updates', status='error', channel_id='', vk_group_id=''
+        )
+        mock_metrics.telegram_api_requests_total.labels.return_value.inc.assert_called_once_with()
 
 
 class TestStart:

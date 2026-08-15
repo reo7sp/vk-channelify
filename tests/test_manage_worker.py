@@ -122,14 +122,22 @@ class TestDelState:
 class TestOnError:
     @patch('vk_channelify.manage_worker.metrics')
     def test_records_polling_error(self, mock_metrics: Mock) -> None:
-        context = Mock(error=Exception('Network is unreachable'))
+        error = Exception('Network is unreachable')
+        context = Mock(error=error)
 
-        asyncio.run(on_error(None, context))
+        with patch('vk_channelify.manage_worker.logger') as mock_logger:
+            asyncio.run(on_error(None, context))
 
         mock_metrics.telegram_api_requests_total.labels.assert_called_once_with(
             method='get_updates', status='error', channel_id='', vk_group_id=''
         )
         mock_metrics.telegram_api_requests_total.labels.return_value.inc.assert_called_once_with()
+        mock_logger.error.assert_called_once_with(
+            'Telegram update failed',
+            error='Network is unreachable',
+            update='None',
+            exc_info=error,
+        )
 
     @patch('vk_channelify.manage_worker.metrics')
     def test_replies_to_effective_message(self, mock_metrics: Mock) -> None:

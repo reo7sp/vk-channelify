@@ -43,6 +43,7 @@ def run_worker_inside_thread(
     while True:
         db = None
         start_time = time.monotonic()
+
         logger.info('Repost iteration started')
         metrics.repost_iterations_total.inc()
 
@@ -137,7 +138,7 @@ async def run_worker_iteration_with_bot(vk_service_code: str, bot: telegram.Bot,
                     **metrics_kwargs,
                 )
                 metrics.repost_errors_total.labels(error_type='telegram_chat_not_found', **metrics_kwargs).inc()
-                await disable_channel(channel, db, bot)
+                await disable_channel(channel, db, bot, reason='telegram_chat_not_found')
             else:
                 metrics.repost_errors_total.labels(error_type='telegram_bad_request', **metrics_kwargs).inc()
                 raise e
@@ -149,7 +150,7 @@ async def run_worker_iteration_with_bot(vk_service_code: str, bot: telegram.Bot,
                 **metrics_kwargs,
             )
             metrics.repost_errors_total.labels(error_type='telegram_unauthorized', **metrics_kwargs).inc()
-            await disable_channel(channel, db, bot)
+            await disable_channel(channel, db, bot, reason='telegram_channel_forbidden')
 
         except telegram.error.TimedOut as e:
             logger.warning('Telegram request timed out', error=str(e), **metrics_kwargs)
@@ -173,7 +174,7 @@ async def run_worker_iteration_with_bot(vk_service_code: str, bot: telegram.Bot,
         except VKWallAccessDeniedError as e:
             logger.warning('VK wall unavailable', error=str(e), **metrics_kwargs)
             metrics.repost_errors_total.labels(error_type='vk_wall_access_denied', **metrics_kwargs).inc()
-            await disable_channel(channel, db, bot)
+            await disable_channel(channel, db, bot, reason='vk_wall_unavailable')
 
         except VKError as e:
             logger.warning('VK API error', error=str(e), **metrics_kwargs)
@@ -234,13 +235,13 @@ def is_passing_hashtag_filter(hashtag_filter: str | None, post: dict[str, Any]) 
     return any(hashtag.strip() in post['text'] for hashtag in hashtag_filter.split(','))
 
 
-async def disable_channel(channel: Channel, db: Session, bot: telegram.Bot) -> None:
+async def disable_channel(channel: Channel, db: Session, bot: telegram.Bot, reason: str) -> None:
     metrics_kwargs = {
         'channel_id': channel.channel_id,
         'vk_group_id': channel.vk_group_id,
     }
 
-    logger.warning('Disabling channel', **metrics_kwargs)
+    logger.warning('Disabling channel', reason=reason, **metrics_kwargs)
     metrics.channels_disabled_total.labels(**metrics_kwargs).inc()
 
     try:

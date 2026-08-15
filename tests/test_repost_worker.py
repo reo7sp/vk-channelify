@@ -12,6 +12,7 @@ from vk_channelify.repost_worker import (
     extract_group_id_if_has,
     fetch_group_posts,
     is_passing_hashtag_filter,
+    run_worker_iteration,
     run_worker_iteration_with_bot,
 )
 from vk_channelify.vk_errors import VKError, VKWallAccessDeniedError
@@ -31,7 +32,6 @@ class TestRunWorkerIteration:
             {'id': 11, 'owner_id': -123, 'text': 'New post 1'},
             {'id': 12, 'owner_id': -123, 'text': 'New post 2'},
         ]
-
         asyncio.run(run_worker_iteration_with_bot('vk_token', mock_bot, mock_db))
 
         assert_that(mock_bot.send_message.call_count, equal_to(2))
@@ -68,22 +68,36 @@ class TestRunWorkerIteration:
 
         asyncio.run(run_worker_iteration_with_bot('vk_token', mock_bot, mock_db))
 
-        mock_disable.assert_awaited_once_with(mock_channel, mock_db, mock_bot)
+        mock_disable.assert_awaited_once_with(
+            mock_channel,
+            mock_db,
+            mock_bot,
+            reason='telegram_channel_forbidden',
+        )
 
+    @patch('vk_channelify.repost_worker.telegram.Bot')
     @patch('vk_channelify.repost_worker.fetch_group_posts')
     @patch('vk_channelify.repost_worker.metrics')
-    def test_iteration_records_vk_timeout_for_channel(self, mock_metrics: Mock, mock_fetch: Mock) -> None:
+    def test_iteration_raises_vk_timeout(
+        self,
+        mock_metrics: Mock,
+        mock_fetch: Mock,
+        mock_bot_class: Mock,
+    ) -> None:
         mock_bot = Mock()
-        mock_bot.send_message = AsyncMock()
+        mock_bot_class.return_value.__aenter__ = AsyncMock(return_value=mock_bot)
+        mock_bot_class.return_value.__aexit__ = AsyncMock(return_value=None)
         mock_channel = Mock(channel_id='-100123456', vk_group_id='testgroup', last_vk_post_id=10, hashtag_filter=None)
         mock_db = Mock()
         mock_db.scalar.side_effect = [1, 0]
         mock_db.scalars.return_value = iter([mock_channel])
-        mock_fetch.side_effect = requests.Timeout('VK timed out')
+        error = requests.Timeout('VK timed out')
+        mock_fetch.side_effect = error
 
-        with pytest.raises(requests.Timeout):
-            asyncio.run(run_worker_iteration_with_bot('vk_token', mock_bot, mock_db))
+        with pytest.raises(requests.Timeout) as raised:
+            asyncio.run(run_worker_iteration('vk_token', 'telegram_token', mock_db))
 
+        assert_that(raised.value, is_(error))
         mock_metrics.repost_errors_total.labels.assert_called_once_with(
             error_type='vk_timeout', channel_id='-100123456', vk_group_id='testgroup'
         )
@@ -103,8 +117,10 @@ class TestRunWorkerIteration:
         mock_db.scalars.return_value = iter([mock_channel])
         mock_fetch.side_effect = requests.ConnectionError('Connection aborted')
 
-        with pytest.raises(requests.ConnectionError):
+        with pytest.raises(requests.ConnectionError) as raised:
             asyncio.run(run_worker_iteration_with_bot('vk_token', Mock(), mock_db))
+
+        assert_that(raised.value, is_(mock_fetch.side_effect))
 
         mock_metrics.repost_errors_total.labels.assert_called_once_with(
             error_type='vk_connection_error',
@@ -126,8 +142,10 @@ class TestRunWorkerIteration:
         mock_db.scalars.return_value = iter([mock_channel])
         mock_fetch.side_effect = requests.RequestException('Request failed')
 
-        with pytest.raises(requests.RequestException):
+        with pytest.raises(requests.RequestException) as raised:
             asyncio.run(run_worker_iteration_with_bot('vk_token', Mock(), mock_db))
+
+        assert_that(raised.value, is_(mock_fetch.side_effect))
 
         mock_metrics.repost_errors_total.labels.assert_called_once_with(
             error_type='vk_request_error',
@@ -180,7 +198,12 @@ class TestRunWorkerIteration:
 
         asyncio.run(run_worker_iteration_with_bot('vk_token', mock_bot, mock_db))
 
-        mock_disable.assert_awaited_once_with(mock_channel, mock_db, mock_bot)
+        mock_disable.assert_awaited_once_with(
+            mock_channel,
+            mock_db,
+            mock_bot,
+            reason='telegram_chat_not_found',
+        )
         mock_metrics.repost_errors_total.labels.assert_called_once_with(
             error_type='telegram_chat_not_found',
             channel_id='-100123456',
@@ -207,7 +230,12 @@ class TestRunWorkerIteration:
 
         asyncio.run(run_worker_iteration_with_bot('vk_token', mock_bot, mock_db))
 
-        mock_disable.assert_awaited_once_with(mock_channel, mock_db, mock_bot)
+        mock_disable.assert_awaited_once_with(
+            mock_channel,
+            mock_db,
+            mock_bot,
+            reason='vk_wall_unavailable',
+        )
         mock_metrics.repost_errors_total.labels.assert_called_once_with(
             error_type='vk_wall_access_denied',
             channel_id='-100123456',
@@ -228,8 +256,10 @@ class TestRunWorkerIteration:
         mock_db.scalars.return_value = iter([mock_channel])
         mock_fetch.side_effect = VKError(5, 'Authorization failed', [])
 
-        with pytest.raises(VKError):
+        with pytest.raises(VKError) as raised:
             asyncio.run(run_worker_iteration_with_bot('vk_token', Mock(), mock_db))
+
+        assert_that(raised.value, is_(mock_fetch.side_effect))
 
         mock_metrics.repost_errors_total.labels.assert_called_once_with(
             error_type='vk_api_error',
@@ -254,8 +284,10 @@ class TestRunWorkerIteration:
         mock_db.scalars.return_value = iter([mock_channel])
         mock_fetch.return_value = [{'id': 11, 'owner_id': -123, 'text': 'Post'}]
 
-        with pytest.raises(telegram.error.BadRequest):
+        with pytest.raises(telegram.error.BadRequest) as raised:
             asyncio.run(run_worker_iteration_with_bot('vk_token', mock_bot, mock_db))
+
+        assert_that(raised.value, is_(mock_bot.send_message.side_effect))
 
         mock_metrics.repost_errors_total.labels.assert_called_once_with(
             error_type='telegram_bad_request',
@@ -381,7 +413,7 @@ class TestDisableChannel:
         mock_db = Mock()
         mock_bot = Mock(send_message=AsyncMock())
 
-        asyncio.run(disable_channel(mock_channel, mock_db, mock_bot))
+        asyncio.run(disable_channel(mock_channel, mock_db, mock_bot, reason='test'))
 
         mock_db.add.assert_called_once()
         mock_db.delete.assert_called_once_with(mock_channel)
@@ -394,7 +426,7 @@ class TestDisableChannel:
         mock_db.commit.side_effect = RuntimeError('DB Error')
 
         with pytest.raises(RuntimeError):
-            asyncio.run(disable_channel(mock_channel, mock_db, Mock(send_message=AsyncMock())))
+            asyncio.run(disable_channel(mock_channel, mock_db, Mock(send_message=AsyncMock()), reason='test'))
 
         mock_db.rollback.assert_called_once()
 
@@ -411,6 +443,6 @@ class TestDisableChannel:
             send_message=AsyncMock(side_effect=telegram.error.Forbidden('Forbidden')),
         )
 
-        asyncio.run(disable_channel(mock_channel, mock_db, mock_bot))
+        asyncio.run(disable_channel(mock_channel, mock_db, mock_bot, reason='test'))
 
         mock_db.commit.assert_called_once_with()

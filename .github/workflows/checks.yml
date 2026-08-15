@@ -1,0 +1,53 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+          cache: poetry
+          cache-dependency-path: poetry.lock
+
+      - name: Run lint
+        run: make lint
+
+      - name: Run tests
+        run: make test
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build integration test images
+        uses: docker/bake-action@v7
+        with:
+          source: .
+          files: docker-compose.yml
+          targets: migrate,tests
+          load: true
+          set: |
+            migrate.tags=vk-channelify-migrate
+            migrate.cache-from=type=gha,scope=migrate
+            migrate.cache-to=type=gha,scope=migrate,mode=max
+            tests.tags=vk-channelify-tests
+            tests.cache-from=type=gha,scope=tests
+            tests.cache-to=type=gha,scope=tests,mode=max
+
+      - name: Run integration tests
+        run: docker compose --profile test up --no-build --abort-on-container-exit --exit-code-from tests tests

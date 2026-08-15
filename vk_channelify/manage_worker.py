@@ -154,6 +154,7 @@ async def on_error(update: object | None, context: ContextTypes.DEFAULT_TYPE) ->
         'Telegram update failed',
         error=str(context.error),
         update=repr(update),
+        exc_info=context.error,
     )
     metrics.telegram_api_requests_total.labels(
         method='get_updates', status='error', channel_id='', vk_group_id=''
@@ -162,18 +163,6 @@ async def on_error(update: object | None, context: ContextTypes.DEFAULT_TYPE) ->
     if isinstance(update, telegram.Update) and update.effective_message is not None:
         await update.effective_message.reply_text('Внутренняя ошибка')
         await update.effective_message.reply_text('Сообщите @olezhes')
-
-
-def catch_exceptions(func: Callable) -> Callable:
-    @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args: Any, **kwargs: Any) -> Any:
-        try:
-            return await func(update, context, *args, **kwargs)
-        except Exception:
-            logger.exception('Telegram handler failed', handler=func.__name__)
-            raise
-
-    return wrapper
 
 
 def observe_metrics(command_name: str) -> Callable:
@@ -209,13 +198,11 @@ def make_db_session(func: Callable) -> Callable:
     return wrapper
 
 
-@catch_exceptions
 @observe_metrics('start')
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text('Команда /new настроит новый канал. В канал будут пересылаться посты из группы ВК')
 
 
-@catch_exceptions
 @observe_metrics('new')
 async def new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     metrics.telegram_conversations_total.labels(type='new', status='started').inc()
@@ -225,7 +212,6 @@ async def new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ASKED_VK_GROUP_LINK_IN_NEW
 
 
-@catch_exceptions
 async def new_in_state_asked_vk_group_link(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -247,14 +233,12 @@ async def new_in_state_asked_vk_group_link(
     return ASKED_CHANNEL_ACCESS_IN_NEW
 
 
-@catch_exceptions
 async def new_in_state_asked_channel_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text('Хорошо. Перешлите любое сообщение из канала', reply_markup=ReplyKeyboardRemove())
 
     return ASKED_CHANNEL_MESSAGE_IN_NEW
 
 
-@catch_exceptions
 @make_db_session
 async def new_in_state_asked_channel_message(
     update: Update,
@@ -299,7 +283,6 @@ async def new_in_state_asked_channel_message(
     return ConversationHandler.END
 
 
-@catch_exceptions
 async def cancel_new(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -315,7 +298,6 @@ async def cancel_new(
     return ConversationHandler.END
 
 
-@catch_exceptions
 @make_db_session
 @observe_metrics('filter_by_hashtag')
 async def filter_by_hashtag(
@@ -357,7 +339,6 @@ async def filter_by_hashtag(
     return ASKED_CHANNEL_ID_IN_FILTER_BY_HASHTAG
 
 
-@catch_exceptions
 @make_db_session
 async def filter_by_hashtag_in_state_asked_channel_id(
     update: Update,
@@ -381,7 +362,6 @@ async def filter_by_hashtag_in_state_asked_channel_id(
     return ASKED_HASHTAGS_IN_FILTER_BY_HASHTAG
 
 
-@catch_exceptions
 @make_db_session
 async def filter_by_hashtag_in_state_asked_hashtags(
     update: Update,
@@ -410,7 +390,6 @@ async def filter_by_hashtag_in_state_asked_hashtags(
     return ConversationHandler.END
 
 
-@catch_exceptions
 async def cancel_filter_by_hashtag(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -427,7 +406,6 @@ async def cancel_filter_by_hashtag(
     return ConversationHandler.END
 
 
-@catch_exceptions
 @make_db_session
 @observe_metrics('recover')
 async def recover(
@@ -472,7 +450,6 @@ async def recover(
         return ASKED_CHANNEL_ID_IN_RECOVER
 
 
-@catch_exceptions
 @make_db_session
 async def recover_in_state_asked_channel_id(
     update: Update,
@@ -514,7 +491,6 @@ async def recover_in_state_asked_channel_id(
     return ConversationHandler.END
 
 
-@catch_exceptions
 async def cancel_recover(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,

@@ -318,11 +318,59 @@ class TestRunWorkerIteration:
 
 
 class TestFetchGroupPosts:
+    @pytest.mark.parametrize('group', ['timuraatacks', 'TIMURAATACKS', 'club128731464', 'public128731464'])
+    @patch('vk_channelify.repost_worker.requests.get')
+    @patch('vk_channelify.repost_worker.time.sleep')
+    def test_foreign_wall_cannot_advance_cursor(self, mock_sleep: Mock, mock_get: Mock, group: str) -> None:
+        own_post = {
+            'id': 1748,
+            'owner_id': -128731464,
+            'text': 'New post',
+            'copy_history': [{'id': 99999, 'owner_id': -53640458}],
+        }
+        mock_get.return_value.json.return_value = {
+            'response': {
+                'items': [own_post, {'id': 13017, 'owner_id': -53640458, 'text': 'Foreign post'}],
+                'groups': [
+                    {'id': 53640458, 'screen_name': 'atomnsk'},
+                    {'id': 128731464, 'screen_name': 'timuraatacks'},
+                ],
+            }
+        }
+        posts = fetch_group_posts(group, 'test_token')
+        assert posts == [own_post]
+        bot = Mock(send_message=AsyncMock())
+        channel = Mock(channel_id='-1001742321064', vk_group_id=group, last_vk_post_id=1744, hashtag_filter=None)
+        db = Mock()
+        db.scalar.side_effect = [1, 0]
+        db.scalars.return_value = [channel]
+        with patch('vk_channelify.repost_worker.fetch_group_posts', return_value=posts):
+            asyncio.run(run_worker_iteration_with_bot('test_token', bot, db))
+        assert channel.last_vk_post_id == 1748
+        bot.send_message.assert_awaited_once()
+
+    @patch('vk_channelify.repost_worker.requests.get')
+    @patch('vk_channelify.repost_worker.time.sleep')
+    def test_unknown_wall_fails_closed(self, mock_sleep: Mock, mock_get: Mock) -> None:
+        mock_get.return_value.json.return_value = {
+            'response': {
+                'items': [{'id': 13017, 'owner_id': -53640458}],
+                'groups': [{'id': 53640458, 'screen_name': 'atomnsk'}],
+            }
+        }
+        with pytest.raises(ValueError, match='Cannot identify VK wall'):
+            fetch_group_posts('timuraatacks', 'test_token')
+
     @patch('vk_channelify.repost_worker.requests.get')
     @patch('vk_channelify.repost_worker.time.sleep')
     @patch('vk_channelify.repost_worker.metrics')
     def test_fetch_success(self, mock_metrics: Mock, mock_sleep: Mock, mock_get: Mock) -> None:
-        mock_get.return_value.json.return_value = {'response': {'items': [{'id': 1, 'text': 'Post 1'}]}}
+        mock_get.return_value.json.return_value = {
+            'response': {
+                'items': [{'id': 1, 'owner_id': -123, 'text': 'Post 1'}],
+                'groups': [{'id': 123, 'screen_name': 'mygroup'}],
+            }
+        }
 
         posts = fetch_group_posts('mygroup', 'test_token')
 

@@ -186,12 +186,12 @@ def fetch_group_posts(group: str, vk_service_code: str) -> list[dict[str, Any]]:
     time.sleep(0.35)
 
     group_id = extract_group_id_if_has(group)
-    is_group_domain_passed = group_id is None
 
+    is_group_domain_passed = group_id is None
     if is_group_domain_passed:
-        url = f'https://api.vk.ru/method/wall.get?domain={group}&count=10&access_token={vk_service_code}&v=5.131'
+        url = f'https://api.vk.ru/method/wall.get?domain={group}&count=10&extended=1&access_token={vk_service_code}&v=5.131'
     else:
-        url = f'https://api.vk.ru/method/wall.get?owner_id=-{group_id}&count=10&access_token={vk_service_code}&v=5.131'
+        url = f'https://api.vk.ru/method/wall.get?owner_id=-{group_id}&count=10&extended=1&access_token={vk_service_code}&v=5.131'
 
     try:
         r = requests.get(url, timeout=VK_API_TIMEOUT_SECONDS)
@@ -214,7 +214,18 @@ def fetch_group_posts(group: str, vk_service_code: str) -> list[dict[str, Any]]:
 
     metrics.vk_api_requests_total.labels(method='wall.get', status='success', vk_group_id=group).inc()
 
-    return j['response']['items']
+    if group_id is None:
+        group_id = next(
+            (str(g['id']) for g in j['response']['groups'] if g.get('screen_name', '').casefold() == group.casefold()),
+            None,
+        )
+        if group_id is None:
+            raise ValueError(f'Cannot identify VK wall for {group}')
+
+    owner_id = -int(group_id)
+    posts = [post for post in j['response']['items'] if post['owner_id'] == owner_id]
+
+    return posts
 
 
 def extract_group_id_if_has(group_name: str) -> str | None:
